@@ -5,20 +5,17 @@ description: Manage Azure KeyVault work resources via the work-resources CLI (wr
 
 # Work Resources (Azure KeyVault)
 
-Use the `wr-*` CLI wrappers from the work-resources project to manage secrets for test/dev resources.
+Use the `wr-*` CLI commands from the **work-resources** project to manage secrets for test/dev resources.
 
-## Project location
-- Repo: `~/Code/work/work-resources`
-- CLI wrappers: `~/Code/work/work-resources/bin/wr-*`
-- Docs: `~/Code/work/work-resources/README.md`
+## Prerequisite
+The `wr-*` commands must be installed and available on PATH. If they are missing, instruct the user to install them from the work-resources repo:
+- Repo: https://github.com/jpalvarezl/work-resources
+- Install: follow the repo README (install.sh / install.ps1)
 
 ## General guidance
 - Prefer the `wr-*` commands (they wrap the PowerShell scripts correctly).
 - If the user asks for available resources, run `wr-list`.
-- If the CLI isn’t installed in the shell, use the project installers:
-  - macOS/Linux/WSL: `~/Code/work/work-resources/install.sh`
-  - Windows: `~/Code/work/work-resources/install.ps1`
-- Only uninstall on explicit request: `uninstall.sh` or `uninstall.ps1`.
+- Only uninstall on explicit request.
 
 ## Commands
 

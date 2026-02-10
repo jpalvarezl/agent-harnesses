@@ -26,6 +26,15 @@ Then restart pi (or run `/reload` after edits inside the skills/prompts).
 
 ## Skills (examples)
 
+### Dependencies
+- `wr-load` requires the **work-resources** CLI: https://github.com/jpalvarezl/work-resources
+- `codegen` requires `tsp-client` on PATH (npm package: https://www.npmjs.com/package/@azure-tools/typespec-client-generator-cli?activeTab=readme).
+- `run-tests` requires Java + Maven (`mvn`) on PATH.
+  - Recommended Java: Temurin JDK 21 (https://adoptium.net/en-GB/temurin/releases)
+  - Maven install: https://maven.apache.org/install.html
+- `test-proxy` requires the `test-proxy` CLI on PATH (install: https://github.com/Azure/azure-sdk-tools/blob/main/tools/test-proxy/Azure.Sdk.Tools.TestProxy/README.md#installation-and-initial-run).
+
+
 ### `wr-load`
 ```text
 /skill:wr-load load secrets for resource myapi
