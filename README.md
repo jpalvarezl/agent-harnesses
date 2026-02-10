@@ -2,6 +2,9 @@
 
 This repo contains shared **skills** and **prompt templates** for our pi workflows.
 
+Pi is a CLI coding-agent harness for agent orchestration, custom skills, prompt templates, and extensions.
+Docs: https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent
+
 ## Setup
 
 Add these paths to your global settings (`~/.pi/agent/settings.json`):
