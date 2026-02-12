@@ -60,6 +60,18 @@ AZURE_TEST_MODE=RECORD mvn \
   -Dbuildhelper.addtestsource.skip=true -Dbuildhelper.addtestresource.skip=true \
   -Dtest=AgentsTests#basicCRUDOperations test
 ```
+- If Maven/Surefire shows JPMS/module-path errors (e.g., `okio` module issues) but IntelliJ runs fine, disable the module path to match IntelliJ’s classpath behavior:
+```bash
+-Dsurefire.useModulePath=false -Dmaven.surefire.useModulePath=false
+```
+  Example (azure-ai-agents):
+```bash
+eval "$(wr-load -Export bash -Resource azure-agents)" && \
+AZURE_TEST_MODE=RECORD mvn \
+  -Dbuildhelper.addtestsource.skip=true -Dbuildhelper.addtestresource.skip=true \
+  -Dsurefire.useModulePath=false -Dmaven.surefire.useModulePath=false \
+  -Dtest=AgentsTests#promptAgentTest test
+```
 - If build plugins block the run, add skip flags (example):
 ```bash
 -Denforcer.skip=true -Dcodesnippet.skip=true -Dcheckstyle.skip=true \
