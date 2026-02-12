@@ -54,3 +54,8 @@ tsp-client generate --save-inputs
    - **Generate (no fetch requested)**: run `tsp-client generate`.
 4. If the user doesn’t specify, default to `tsp-client update`.
 5. If the project defines or creates a `TempTypeSpecFiles` folder and the user wants code generation, run `tsp-client generate` (with `--save-inputs` if requested).
+6. If a tsp-client command fails, report the error output and suggest checking the TypeSpec repo/commit referenced in `tsp-location.yaml`. Build a GitHub URL from `repo:` and `directory:` (and include the `commit:` as the ref), e.g.:
+   - Repo: `Azure/azure-rest-api-specs`
+   - Commit: `6267b6...`
+   - Directory: `specification/cognitiveservices/OpenAI.Inference`
+   - URL: `https://github.com/Azure/azure-rest-api-specs/tree/6267b6.../specification/cognitiveservices/OpenAI.Inference`
