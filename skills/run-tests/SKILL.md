@@ -72,6 +72,18 @@ AZURE_TEST_MODE=RECORD mvn \
   -Dsurefire.useModulePath=false -Dmaven.surefire.useModulePath=false \
   -Dtest=AgentsTests#promptAgentTest test
 ```
+- If async tests fail with Reactor blocking errors (Netty thread), align with IntelliJ by forcing OkHttp in tests:
+```bash
+AZURE_TEST_HTTP_CLIENTS=okhttp
+```
+  Example (azure-ai-agents async prompt test):
+```bash
+eval "$(wr-load -Export bash -Resource aiservices-tip,azure-common,openai)" && \
+AZURE_TEST_HTTP_CLIENTS=okhttp AZURE_TEST_MODE=RECORD mvn \
+  -Dbuildhelper.addtestsource.skip=true -Dbuildhelper.addtestresource.skip=true \
+  -Dsurefire.useModulePath=false -Dmaven.surefire.useModulePath=false \
+  -Dtest=AgentsAsyncTests#promptAgentTest test
+```
 - If build plugins block the run, add skip flags (example):
 ```bash
 -Denforcer.skip=true -Dcodesnippet.skip=true -Dcheckstyle.skip=true \
