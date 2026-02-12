@@ -46,3 +46,24 @@ AZURE_TEST_MODE=PLAYBACK mvn test
 ```bash
 eval "$(wr-load -Export bash -Resource <resource>)" && AZURE_TEST_MODE=RECORD mvn test
 ```
+- For `azure-sdk-for-java` modules under `sdk/` (notably `sdk/ai`), the parent POM adds `src/samples/java` as test sources. If samples use newer language features, the Java 8 base-testCompile can fail. Skip sample test sources with build-helper flags:
+```bash
+eval "$(wr-load -Export bash -Resource <resource>)" && \
+AZURE_TEST_MODE=RECORD mvn \
+  -Dbuildhelper.addtestsource.skip=true -Dbuildhelper.addtestresource.skip=true \
+  -Dtest=<TestClass>#<testMethod> test
+```
+  Example (azure-ai-agents):
+```bash
+eval "$(wr-load -Export bash -Resource azure-agents)" && \
+AZURE_TEST_MODE=RECORD mvn \
+  -Dbuildhelper.addtestsource.skip=true -Dbuildhelper.addtestresource.skip=true \
+  -Dtest=AgentsTests#basicCRUDOperations test
+```
+- If build plugins block the run, add skip flags (example):
+```bash
+-Denforcer.skip=true -Dcodesnippet.skip=true -Dcheckstyle.skip=true \
+-Dspotbugs.skip=true -Dspotless.skip=true -Dspotless.apply.skip=true \
+-Dspotless.check.skip=true -Drevapi.skip=true -Djacoco.skip=true \
+-Dmaven.javadoc.skip=true -Dshade.skip=true -Danimal.sniffer.skip=true
+```
