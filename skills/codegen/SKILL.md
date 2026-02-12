@@ -48,8 +48,9 @@ tsp-client generate --save-inputs
 1. Verify `tsp-location.yaml` exists in the current directory. If not, stop and ask for the correct location.
 2. If the user provided a commit hash, update the `commit:` value in `tsp-location.yaml`.
 3. Determine the user intent:
-   - **Update**: run `tsp-client update`.
-   - **Sync/fetch**: run `tsp-client sync`.
-   - **Generate**: run `tsp-client generate` (use `--save-inputs` if the user wants to keep inputs).
+   - **Refresh/update/ingest changes from a commit**: run `tsp-client update`.
+   - **Fetch/sync spec from the current commit**: run `tsp-client sync`.
+   - **Generate from fetched spec**: run `tsp-client generate` (use `--save-inputs` only if the user asks to keep inputs).
+   - **Generate (no fetch requested)**: run `tsp-client generate`.
 4. If the user doesn’t specify, default to `tsp-client update`.
 5. If the project defines or creates a `TempTypeSpecFiles` folder and the user wants code generation, run `tsp-client generate` (with `--save-inputs` if requested).
