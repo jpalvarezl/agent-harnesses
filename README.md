@@ -1,30 +1,52 @@
-# Pi Workflows (shared .pi)
+# Pi Workflows
 
-This repo contains shared **skills** and **prompt templates** for our pi workflows.
+This repo contains **skills** and **prompt templates** for pi workflows, split into two areas:
+
+| Directory | Contents | Audience |
+|-----------|----------|----------|
+| `work/` | Skills & prompts for day-to-day team workflows (codegen, testing, recordings, …) | **Team — safe to share** |
+| `personal/` | Personal environment setup, dotfiles, etc. | **Individual** |
 
 Pi is a CLI coding-agent harness for agent orchestration, custom skills, prompt templates, and extensions.
 Docs: https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent
 
 ## Setup
 
-Add these paths to your global settings (`~/.pi/agent/settings.json`):
+### For the full repo (personal + work)
+
+Add both paths in your global settings (`~/.pi/agent/settings.json`):
 
 ```json
 {
-  "skills": ["~/path/to/shared/.pi/skills"],
-  "prompts": ["~/path/to/shared/.pi/prompts"],
+  "skills": [
+    "~/path/to/agent-harnesses/work/skills",
+    "~/path/to/agent-harnesses/personal/skills"
+  ],
+  "prompts": [
+    "~/path/to/agent-harnesses/work/prompts"
+  ],
   "enableSkillCommands": true
 }
 ```
 
-Then restart pi (or run `/reload` after edits inside the skills/prompts).
+### For colleagues (work only)
 
-> Tip: If you want project‑local settings, you can add a `.pi/settings.json` in a repo:
+Share just the `work/` directory:
+
+```json
+{
+  "skills": ["~/path/to/agent-harnesses/work/skills"],
+  "prompts": ["~/path/to/agent-harnesses/work/prompts"],
+  "enableSkillCommands": true
+}
+```
+
+> **Tip:** For project-local settings, add a `.pi/settings.json` in a repo:
 > ```json
-> { "skills": ["../.pi/skills"], "prompts": ["../.pi/prompts"] }
+> { "skills": ["../agent-harnesses/work/skills"], "prompts": ["../agent-harnesses/work/prompts"] }
 > ```
 
-## Skills (examples)
+## Work Skills
 
 ### Dependencies
 - `wr-load` requires the **work-resources** CLI: https://github.com/jpalvarezl/work-resources
@@ -33,7 +55,6 @@ Then restart pi (or run `/reload` after edits inside the skills/prompts).
   - Recommended Java: Temurin JDK 21 (https://adoptium.net/en-GB/temurin/releases)
   - Maven install: https://maven.apache.org/install.html
 - `test-proxy` requires the `test-proxy` CLI on PATH (install: https://github.com/Azure/azure-sdk-tools/blob/main/tools/test-proxy/Azure.Sdk.Tools.TestProxy/README.md#installation-and-initial-run).
-
 
 ### `wr-load`
 ```text
@@ -65,7 +86,7 @@ Then restart pi (or run `/reload` after edits inside the skills/prompts).
 /skill:test-proxy push assets.json
 ```
 
-## Prompt templates (examples)
+## Work Prompt Templates
 
 ### Full workflow
 ```text
@@ -75,6 +96,14 @@ Then restart pi (or run `/reload` after edits inside the skills/prompts).
 ### Duplicate check helper
 ```text
 /dup-check
+```
+
+## Personal Skills
+
+### `dev-env-setup`
+Interactive setup for a developer shell environment (fish, starship, nvm, lsd, bat, Nerd Fonts).
+```text
+/skill:dev-env-setup set up my dev environment
 ```
 
 ## Notes

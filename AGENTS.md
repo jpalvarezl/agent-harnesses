@@ -1,9 +1,14 @@
 # Workflows & Preferences
 
+## Repository layout
+This repo is split into two top-level directories:
+- **`work/`** — skills and prompts for the team (safe to share with colleagues).
+- **`personal/`** — personal skills and prompts (machine-setup, dotfiles, etc.).
+
 ## General
 - Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy).
 - Ask clarifying questions when project/module, commit hash, or test mode is ambiguous.
-- Environment variables set via `wr-load` don’t persist across tool calls; if you need them for a command, combine in a single bash call.
+- Environment variables set via `wr-load` don't persist across tool calls; if you need them for a command, combine in a single bash call.
 
 ## Codegen workflow
 - When the user provides a commit hash, update `tsp-location.yaml` in the current project **before** running tsp-client.
