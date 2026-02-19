@@ -1,0 +1,155 @@
+# ─── Starship Config — Gruvbox Dark ──────────────────────
+# Palette: bg=#282828 fg=#ebdbb2
+# red=#cc241d green=#98971a yellow=#d79921 blue=#458588
+# purple=#b16286 aqua=#689d6a orange=#d65d0e
+
+format = """
+[](fg:#458588)\
+$os\
+$username\
+[](fg:#458588 bg:#689d6a)\
+$directory\
+[](fg:#689d6a bg:#d79921)\
+$git_branch\
+$git_status\
+[](fg:#d79921 bg:#d65d0e)\
+$c\
+$elixir\
+$elm\
+$golang\
+$gradle\
+$haskell\
+$java\
+$julia\
+$nodejs\
+$nim\
+$rust\
+$scala\
+$python\
+$dotnet\
+$terraform\
+$docker_context\
+[](fg:#d65d0e bg:#b16286)\
+$time\
+$cmd_duration\
+[ ](fg:#b16286)\
+$line_break\
+$character"""
+
+# Gruvbox palette
+palette = "gruvbox_dark"
+
+[palettes.gruvbox_dark]
+bg0 = "#282828"
+bg1 = "#3c3836"
+fg0 = "#fbf1c7"
+fg1 = "#ebdbb2"
+red = "#cc241d"
+green = "#98971a"
+yellow = "#d79921"
+blue = "#458588"
+purple = "#b16286"
+aqua = "#689d6a"
+orange = "#d65d0e"
+
+[os]
+disabled = false
+style = "bg:#458588 fg:#282828"
+
+[os.symbols]
+Windows = "󰍲 "
+Ubuntu = "󰕈 "
+Macos = "󰀵 "
+Linux = "󰌽 "
+
+[username]
+show_always = true
+style_user = "bg:#458588 fg:#282828"
+style_root = "bg:#458588 fg:#cc241d"
+format = '[$user ]($style)'
+disabled = false
+
+[directory]
+style = "bg:#689d6a fg:#282828"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[directory.substitutions]
+"Documents" = "󰈙 "
+"Downloads" = " "
+"Music" = " "
+"Pictures" = " "
+"code" = "󰲋 "
+
+[git_branch]
+symbol = ""
+style = "bg:#d79921 fg:#282828"
+format = '[ $symbol $branch ]($style)'
+
+[git_status]
+style = "bg:#d79921 fg:#282828"
+format = '[$all_status$ahead_behind ]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[rust]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[golang]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[python]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[java]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[dotnet]
+symbol = "󰪮"
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[c]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol ($version) ]($style)'
+
+[docker_context]
+symbol = ""
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol $context ]($style)'
+
+[terraform]
+symbol = "󱁢"
+style = "bg:#d65d0e fg:#282828"
+format = '[ $symbol $workspace ]($style)'
+
+[time]
+disabled = false
+time_format = "%R"
+style = "bg:#b16286 fg:#282828"
+format = '[ 󰥔 $time ]($style)'
+
+[cmd_duration]
+min_time = 500
+style = "bg:#b16286 fg:#282828"
+format = '[ 󱎫 $duration ]($style)'
+
+[character]
+success_symbol = "[❯](bold #98971a)"
+error_symbol = "[❯](bold #cc241d)"
+
+[line_break]
+disabled = false
