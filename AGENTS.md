@@ -6,7 +6,7 @@ This repo is split into two top-level directories:
 - **`personal/`** — personal skills and prompts (machine-setup, dotfiles, etc.).
 
 ## General
-- Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy).
+- Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github).
 - Ask clarifying questions when project/module, commit hash, or test mode is ambiguous.
 - Environment variables set via `wr-load` don't persist across tool calls; if you need them for a command, combine in a single bash call.
 
@@ -23,3 +23,6 @@ This repo is split into two top-level directories:
 
 ## Recordings
 - When the user is happy with recordings, use the `test-proxy` skill to push `assets.json`.
+
+## GitHub
+- Use the `github` skill for issues, PRs, CI runs, and advanced API queries via the `gh` CLI.
