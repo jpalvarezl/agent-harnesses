@@ -86,6 +86,11 @@ Share just the `work/` directory:
 /skill:test-proxy push assets.json
 ```
 
+### `release-notes`
+```text
+/skill:release-notes update changelog and readme from PR https://github.com/Azure/azure-sdk-for-java/pull/12345
+```
+
 ## Work Prompt Templates
 
 ### Full workflow
@@ -96,6 +101,11 @@ Share just the `work/` directory:
 ### Duplicate check helper
 ```text
 /dup-check
+```
+
+### Release notes from a PR
+```text
+/release-notes https://github.com/Azure/azure-sdk-for-java/pull/12345
 ```
 
 ## Personal Skills

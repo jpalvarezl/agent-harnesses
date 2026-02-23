@@ -24,5 +24,13 @@ This repo is split into two top-level directories:
 ## Recordings
 - When the user is happy with recordings, use the `test-proxy` skill to push `assets.json`.
 
+## Release notes
+- Use the `release-notes` skill when updating CHANGELOG.md or README.md from a PR.
+- Always ask for the PR URL/number if not provided.
+- Summarize changes from a consumer perspective; group repetitive renames by pattern.
+- Never break the CI-enforced CHANGELOG heading structure (`Features Added`, `Breaking Changes`, `Bugs Fixed`, `Other Changes`).
+- Never remove existing entries from the CHANGELOG.
+- For README updates, preserve the existing heading hierarchy and update code snippets if renamed APIs are referenced.
+
 ## GitHub
 - Use the `github` skill for issues, PRs, CI runs, and advanced API queries via the `gh` CLI.
