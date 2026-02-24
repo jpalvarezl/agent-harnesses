@@ -1,11 +1,11 @@
 # Pi Workflows
 
-This repo contains **skills** and **prompt templates** for pi workflows, split into two areas:
+This repo contains **skills**, **prompt templates**, and **extensions** for pi workflows, split into two areas:
 
 | Directory | Contents | Audience |
 |-----------|----------|----------|
-| `work/` | Skills & prompts for day-to-day team workflows (codegen, testing, recordings, …) | **Team — safe to share** |
-| `personal/` | Personal environment setup, dotfiles, etc. | **Individual** |
+| `work/` | Skills, prompts & extensions for day-to-day team workflows (codegen, testing, recordings, …) | **Team — safe to share** |
+| `personal/` | Personal extensions, environment setup, dotfiles, etc. | **Individual** |
 
 Pi is a CLI coding-agent harness for agent orchestration, custom skills, prompt templates, and extensions.
 Docs: https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent
@@ -25,6 +25,10 @@ Add both paths in your global settings (`~/.pi/agent/settings.json`):
   "prompts": [
     "~/path/to/agent-harnesses/work/prompts"
   ],
+  "extensions": [
+    "~/path/to/agent-harnesses/work/extensions/my-extension",
+    "~/path/to/agent-harnesses/personal/extensions/dispatch"
+  ],
   "enableSkillCommands": true
 }
 ```
@@ -37,6 +41,7 @@ Share just the `work/` directory:
 {
   "skills": ["~/path/to/agent-harnesses/work/skills"],
   "prompts": ["~/path/to/agent-harnesses/work/prompts"],
+  "extensions": ["~/path/to/agent-harnesses/work/extensions/my-extension"],
   "enableSkillCommands": true
 }
 ```
@@ -45,6 +50,8 @@ Share just the `work/` directory:
 > ```json
 > { "skills": ["../agent-harnesses/work/skills"], "prompts": ["../agent-harnesses/work/prompts"] }
 > ```
+
+> **Note:** Extensions are either a single `.ts` file or a directory containing an `index.ts` entry point. Each extension path must be listed individually in the `"extensions"` array. **New extensions require a full restart of pi** — `/reload` may not detect them.
 
 ## Work Skills
 
@@ -114,6 +121,18 @@ Share just the `work/` directory:
 Interactive setup for a developer shell environment (fish, starship, nvm, lsd, bat, Nerd Fonts).
 ```text
 /skill:dev-env-setup set up my dev environment
+```
+
+## Personal Extensions
+
+### `dispatch`
+Scan, dispatch, and merge parallel agent work via git worktrees. Registers commands: `/scan`, `/dispatch`, `/sessions`, `/broadcast`.
+```text
+/scan src -d            # scan for markers and auto-dispatch
+/dispatch TODO-ab12cd34 # dispatch a specific todo
+/dispatch status        # show active worktrees
+/sessions               # show live sessions and broadcasts
+/broadcast <message>    # broadcast to other sessions
 ```
 
 ## Notes

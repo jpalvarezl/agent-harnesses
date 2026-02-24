@@ -2,8 +2,14 @@
 
 ## Repository layout
 This repo is split into two top-level directories:
-- **`work/`** — skills and prompts for the team (safe to share with colleagues).
-- **`personal/`** — personal skills and prompts (machine-setup, dotfiles, etc.).
+- **`work/`** — skills, prompts, and extensions for the team (safe to share with colleagues).
+- **`personal/`** — personal skills, extensions, and prompts (machine-setup, dotfiles, etc.).
+
+## Extensions
+- Extensions live under `work/extensions/` or `personal/extensions/`.
+- Each extension is either a single `.ts` file or a directory with an `index.ts` entry point.
+- Extensions must be registered in `~/.pi/agent/settings.json` under the `"extensions"` array (see README for setup).
+- **New extensions require a full restart of pi** — `/reload` may not detect newly added extensions.
 
 ## General
 - Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github).

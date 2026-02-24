@@ -12,44 +12,24 @@ The `wr-*` commands must be installed and available on PATH. If they are missing
 - Repo: https://github.com/jpalvarezl/work-resources
 - Install: follow the repo README (install.sh / install.ps1)
 
-## General guidance
-- Prefer the `wr-*` commands (they wrap the PowerShell scripts correctly).
-- If the user asks for available resources, run `wr-list`.
-- Only uninstall on explicit request.
+## Key rule: minimize wr-load calls
+
+`wr-load` fetches secrets from Azure KeyVault over the network. **Call it at most once per session.** After the first call, cache the values you received and reuse them directly in subsequent commands. Do NOT call `wr-load` again for the same resource.
 
 ## Commands
 
-### `wr-setup`
-Initial KeyVault setup (creates resource group/vault and assigns permissions).
-```bash
-wr-setup
-wr-setup -Force
-```
-
-### `wr-save`
-Save a new secret (prompts for value if omitted).
-```bash
-wr-save -Resource <resource> -Name <secret-name> -EnvVarName <ENV_VAR> [-Value <value>]
-```
-
-### `wr-update`
-Update an existing secret (value and/or env var name).
-```bash
-wr-update -Resource <resource> -Name <secret-name> [-EnvVarName <ENV_VAR>] [-Value <value>]
-```
-
 ### `wr-load`
-Load secrets into the current shell session.
+Load secrets into the current shell session. The script detects your shell automatically; use `-Export` to control the output format.
+
 ```bash
-wr-load
 wr-load -Resource <resource>
 wr-load -Resource "res1,res2"
 wr-load -SpawnShell
 ```
 
-**Note for pi:** environment changes don’t persist across tool calls. If you need the variables for a single command, combine them in one call:
+To combine with another command (env vars persist within the same shell process):
 ```bash
-eval "$(wr-load -Export bash -Resource <resource>)" && <your-command>
+wr-load -Resource <resource>; <your-command>
 ```
 
 ### `wr-list`
@@ -59,30 +39,48 @@ wr-list
 wr-list -Resource <resource>
 ```
 
-### `wr-clear`
-Clear loaded secrets from the current session.
+### `wr-save`
+Save a new secret. Always pass `-Value` to avoid interactive prompts that hang in pi.
 ```bash
-wr-clear
-wr-clear -Resource <resource>
-wr-clear -Force
+wr-save -Resource <resource> -Name <secret-name> -EnvVarName <ENV_VAR> -Value <value>
+```
+
+### `wr-update`
+Update an existing secret. Always pass `-Value` to avoid interactive prompts that hang in pi.
+```bash
+wr-update -Resource <resource> -Name <secret-name> -EnvVarName <ENV_VAR> -Value <value>
 ```
 
 ### `wr-delete`
 Delete secrets from the vault.
 ```bash
-wr-delete -Resource <resource> -Name <secret-name> [-Force]
-wr-delete -Resource <resource> -All [-Force]
+wr-delete -Resource <resource> -Name <secret-name> -Force
+wr-delete -Resource <resource> -All -Force
+```
+
+### `wr-clear`
+Clear loaded secrets from the current session.
+```bash
+wr-clear
+wr-clear -Resource <resource>
+```
+
+### `wr-setup`
+Initial KeyVault setup (creates resource group/vault and assigns permissions).
+```bash
+wr-setup
 ```
 
 ### `wr-migrate`
-Maintenance tool to add missing tags (`env-var-name`, `resource`).
+Maintenance tool to add missing tags.
 ```bash
 wr-migrate -DryRun
-wr-migrate
 wr-migrate -Force
 ```
 
 ## Steps
 1. Determine which `wr-*` command matches the user request.
-2. If the request requires a resource name and it’s missing, run `wr-list` and ask the user to pick one.
-3. Execute the appropriate `wr-*` command with the user’s parameters.
+2. If the request requires a resource name and it's missing, run `wr-list` and ask the user to pick one.
+3. Execute the appropriate `wr-*` command.
+4. For `wr-save` and `wr-update`, always include `-Value` to prevent interactive prompts.
+5. After loading secrets with `wr-load`, cache the values. Do not call `wr-load` again for the same resource.
