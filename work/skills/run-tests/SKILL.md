@@ -60,5 +60,6 @@ Apply these **only** if the simple `mvn test` command fails with the specific er
 - **JPMS/module-path errors** (e.g., `okio` module issues): add `-Dsurefire.useModulePath=false`
 - **Build plugins block the run**: add skip flags as needed, e.g. `-Denforcer.skip=true -Dcodesnippet.skip=true -Dcheckstyle.skip=true`
 - **Reactor blocking errors in async tests** (Netty thread): add `$env:AZURE_TEST_HTTP_CLIENTS = "okhttp"`
+- **SSL handshake / PKIX path building failed** (`SSLHandshakeException`, `unable to find valid certification path to requested target`): the JVM's trust store is missing the corporate root CA. Add `-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT` to use the Windows certificate store instead. This is common on corporate networks with proxy/firewall TLS interception.
 
 Do NOT preemptively add all these flags. Start simple and escalate only on failure.
