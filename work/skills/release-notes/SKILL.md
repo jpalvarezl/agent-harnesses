@@ -52,7 +52,42 @@ Collect:
 - Changes to customization files.
 - New or modified samples.
 
-## Step 2 — Update CHANGELOG.md
+## Step 2 — Check for existing entries
+
+Before writing anything, read the current `CHANGELOG.md` and `README.md` (if in scope) **in full** and compare their content against the changes you collected in Step 1.
+
+### 2a. Identify overlapping entries
+
+For each change you plan to document, check whether an entry already covers it:
+
+- **Exact match** — an existing bullet describes the same rename, addition, or removal using the same class/method names.
+- **Topical overlap** — an existing bullet covers the same area (e.g., "tool renames" or "new sub-client") but with different detail, wording, or scope.
+
+### 2b. Report findings to the user
+
+If **any** overlap is found, **stop and consult the user before editing**. Present a summary like:
+
+> The following changes from PR #NNN already appear to be covered in the current files:
+>
+> **CHANGELOG.md**
+> - _Features Added_ already mentions `FooClient` addition (line …).
+> - _Breaking Changes_ already has a bullet about tool renames that partially overlaps the renames in this PR.
+>
+> **README.md**
+> - The "Key concepts" section already lists the `BarClient` sub-client.
+>
+> Would you like me to:
+> 1. Skip the entries that are already covered and only add the new ones?
+> 2. Merge/update the overlapping entries (tell me how you'd like them worded)?
+> 3. Proceed anyway and add everything as new entries?
+
+Wait for the user's response before continuing to Step 3 or Step 4.
+
+### 2c. No overlap
+
+If there is **no** overlap at all, inform the user briefly (e.g., "No existing entries overlap with this PR — proceeding to update.") and continue.
+
+## Step 3 — Update CHANGELOG.md
 
 ### Format rules (CI-enforced)
 
@@ -71,7 +106,8 @@ The CHANGELOG structure is **strict**. Every version section must contain exactl
 ```
 
 - **Do not** add, remove, rename, or reorder these headings.
-- **Do not** delete existing entries — only append new ones.
+- **Do not** delete or modify existing entries — all changes are **additive only**. Append new bullets below existing ones.
+- If Step 2 identified a topical overlap and the user chose to merge/update an existing entry, that is the **only** case where you may edit an existing bullet — and only as the user directed.
 - Only modify the target version section (usually the `(Unreleased)` one).
 - Each entry is a markdown list item starting with `- `.
 
@@ -95,7 +131,7 @@ The CHANGELOG structure is **strict**. Every version section must contain exactl
 7. **Don't over-list new models.** If the PR adds dozens of generated models, mention only the notable ones (new tool types, new feature-area models) and say "and related types" or similar.
 8. **Omit trivial internal changes** like parameter reordering in generated `@HostParam`/`@QueryParam` annotations, checkstyle suppression updates, or whitespace.
 
-## Step 3 — Update README.md
+## Step 4 — Update README.md
 
 ### Format rules (CI-enforced)
 
@@ -122,6 +158,7 @@ The README structure is also checked by CI. Follow the existing heading hierarch
 
 - **Do not** remove or reorder the top-level headings.
 - **Do not** change the `[//]: #` version-update markers.
+- **Do not** delete or rewrite existing prose or snippets unless they reference renamed APIs from this PR and Step 2 confirmed no conflict (or the user approved the change).
 - You **may** add new `###` subsections under `## Key concepts` or `## Examples`.
 - Keep existing code snippets intact unless they reference renamed APIs.
 
@@ -160,6 +197,7 @@ Those operation groups are preview and auto-opt-in. Also check convenience clien
 
 ## Notes
 
+- **All edits are additive.** Never remove or rewrite existing content unless the user explicitly approves it after being consulted in Step 2.
 - When the PR diff is too large for `gh pr diff` (HTTP 406), use `gh api .../pulls/<number>/files --paginate` instead.
 - Paginate with `--paginate` and page with `?per_page=100&page=N` as needed.
 - Always read the existing CHANGELOG and README **before** editing to avoid duplicating entries or breaking structure.
