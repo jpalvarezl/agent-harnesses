@@ -99,12 +99,54 @@ gh api --paginate repos/owner/repo/issues --jq '.[].title'
 
 ## Steps
 
-1. If `owner/repo` is not provided, check if there is a `.git` directory and infer the remote via `gh repo view --json nameWithOwner`. Otherwise ask the user for the repo.
-2. Choose the appropriate subcommand (`pr`, `issue`, `run`, `api`) based on the user's request.
-3. Prefer structured subcommands (`gh pr`, `gh issue`, `gh run`) over raw `gh api` when they cover the use case.
-4. Use `--json` + `--jq` when the user needs specific fields or wants to pipe output into further processing.
-5. If a workflow run is failing, start with `gh pr checks` for a quick overview, then `gh run view --log-failed` for detailed output.
-6. Report results clearly; if output is large, summarize and highlight the relevant parts.
+1. Check if `gh` is installed by running `gh --version`.
+   - If the command is **not found**, install it (see [Installation](#installation) below).
+2. Check if `gh` is authenticated by running `gh auth status`.
+   - If not authenticated, run `gh auth login`.
+3. If `owner/repo` is not provided, check if there is a `.git` directory and infer the remote via `gh repo view --json nameWithOwner`. Otherwise ask the user for the repo.
+4. Choose the appropriate subcommand (`pr`, `issue`, `run`, `api`) based on the user's request.
+5. Prefer structured subcommands (`gh pr`, `gh issue`, `gh run`) over raw `gh api` when they cover the use case.
+6. Use `--json` + `--jq` when the user needs specific fields or wants to pipe output into further processing.
+7. If a workflow run is failing, start with `gh pr checks` for a quick overview, then `gh run view --log-failed` for detailed output.
+8. Report results clearly; if output is large, summarize and highlight the relevant parts.
+
+## Installation
+
+If `gh` is missing, install it using the recommended method for the current OS.
+Detect the OS first, then run the matching command.
+
+### Windows
+```powershell
+winget install --id GitHub.cli
+```
+> Note: open a **new terminal window** after installation for PATH changes to take effect.
+
+### macOS
+```shell
+brew install gh
+```
+
+### Linux (Debian / Ubuntu)
+```bash
+(type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
+	&& sudo mkdir -p -m 755 /etc/apt/keyrings \
+	&& out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+	&& cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+	&& sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+	&& sudo mkdir -p -m 755 /etc/apt/sources.list.d \
+	&& echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+	&& sudo apt update \
+	&& sudo apt install gh -y
+```
+
+### Linux (Fedora / RHEL / CentOS)
+```bash
+sudo dnf install 'dnf-command(config-manager)'
+sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf install gh --repo gh-cli
+```
+
+After installation, verify with `gh --version`, then authenticate with `gh auth login` if needed.
 
 ## Notes
 
