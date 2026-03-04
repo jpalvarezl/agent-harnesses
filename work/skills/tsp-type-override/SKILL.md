@@ -100,7 +100,74 @@ Check that:
 - The JSON deserialization uses the correct parser (e.g. `CoreUtils.parseBestOffsetDateTime`)
 - No spurious files were generated (e.g. under `src/main/java/java/`)
 
-### 5. Apply changes to the local spec repo (if provided)
+### 5. Write unit tests for serialization/deserialization
+
+After generation, **always** write a unit test that verifies the generated model serializes and deserializes the overridden type to the **same wire-format values** defined in the original TypeSpec. This is critical because the emitter may generate serialization code that does not match the API wire format (e.g. `java.time.DayOfWeek.name()` produces `"MONDAY"` but the TypeSpec union defined `"Monday"`).
+
+Place the test class under `src/test/java/` in the model's package (e.g. `com.azure.ai.projects.models`).
+
+The test must cover three scenarios:
+
+1. **Serialization** — Construct the model with the Java type, serialize to JSON, and assert the JSON string values match the TSP-defined wire format (e.g. PascalCase `"Monday"`, not UPPER_CASE `"MONDAY"`).
+2. **Deserialization** — Parse a JSON string using the TSP-defined wire-format values and assert the Java type is correctly populated.
+3. **Round-trip** — Serialize → deserialize and assert the original values are preserved.
+
+Example test skeleton:
+
+```java
+@Test
+void serializationProducesWireFormatValues() throws IOException {
+    // Build model with the Java type
+    var schedule = new WeeklyRecurrenceSchedule(Arrays.asList(DayOfWeek.MONDAY, DayOfWeek.FRIDAY));
+    String json = toJsonString(schedule);
+    // Assert the wire values match the TSP union/enum values, NOT the Java enum constant names
+    String expected = "{\"daysOfWeek\":[\"Monday\",\"Friday\"],\"type\":\"Weekly\"}";
+    assertEquals(expected, json);
+}
+
+@Test
+void deserializationParsesWireFormatValues() throws IOException {
+    // Use TSP-defined wire-format values
+    String json = "{\"daysOfWeek\":[\"Monday\",\"Wednesday\"],\"type\":\"Weekly\"}";
+    WeeklyRecurrenceSchedule schedule;
+    try (JsonReader reader = JsonProviders.createReader(json)) {
+        schedule = WeeklyRecurrenceSchedule.fromJson(reader);
+    }
+    assertEquals(Arrays.asList(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY), schedule.getDaysOfWeek());
+}
+
+@Test
+void roundTripPreservesValues() throws IOException {
+    var original = new WeeklyRecurrenceSchedule(Arrays.asList(DayOfWeek.SUNDAY, DayOfWeek.SATURDAY));
+    String json = toJsonString(original);
+    WeeklyRecurrenceSchedule deserialized;
+    try (JsonReader reader = JsonProviders.createReader(json)) {
+        deserialized = WeeklyRecurrenceSchedule.fromJson(reader);
+    }
+    assertEquals(original.getDaysOfWeek(), deserialized.getDaysOfWeek());
+}
+```
+
+#### If the tests fail: customize toJson/fromJson
+
+When the emitter generates incorrect serialization (e.g. `element.name()` instead of PascalCase), you must manually fix the `toJson` and `fromJson` methods in the generated model class:
+
+1. **Remove the `@Generated` annotation** from `toJson` and `fromJson`. This ensures your customizations survive future `tsp-client generate` / `tsp-client update` runs — the codegen will not overwrite methods that lack `@Generated`.
+2. Fix the serialization logic to convert between the Java type and the TSP wire format. For example, for `java.time.DayOfWeek`:
+   - **`toJson`**: convert `DayOfWeek.MONDAY` → `"Monday"` (PascalCase) using a helper like:
+     ```java
+     private static String toPascalCase(DayOfWeek day) {
+         String name = day.name();
+         return name.charAt(0) + name.substring(1).toLowerCase(Locale.ROOT);
+     }
+     ```
+   - **`fromJson`**: convert `"Monday"` → `DayOfWeek.MONDAY` by uppercasing before `valueOf()`:
+     ```java
+     DayOfWeek.valueOf(reader.getString().toUpperCase(Locale.ROOT))
+     ```
+3. Re-run the unit tests and confirm all three scenarios pass.
+
+### 6. Apply changes to the local spec repo (if provided)
 
 If the user supplied a local checkout path for `Azure/azure-rest-api-specs`, apply the **same edits** to the `client.java.tsp` there. Derive the file path from `tsp-location.yaml`:
 
@@ -116,7 +183,7 @@ For example, if `directory: specification/ai-foundry/data-plane/Foundry` and the
 
 Verify the file exists before editing. If it doesn't, warn the user and print the expected path.
 
-### 6. Remind the user about the spec PR
+### 7. Remind the user about the spec PR
 
 After confirming the generated code is correct, remind the user:
 
