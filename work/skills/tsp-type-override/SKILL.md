@@ -56,7 +56,7 @@ Syntax (applied to a **model property**, scoped to Java):
 
 This form is **fully supported** on model properties.
 
-#### Form B — External Java type via identity
+#### Form B — External Java type via identity (on a type definition)
 
 Use when no TypeSpec scalar maps to the desired Java type (e.g. `java.time.DayOfWeek`).
 
@@ -70,6 +70,30 @@ Syntax (applied to the **type definition itself**, not a property):
 > - External types (`{ identity: ... }`) **cannot** be applied to model properties — they must target the type definition (Model, Enum, Union, Scalar).
 > - A `scope` parameter (e.g. `"java"`) is **required** for external types.
 > - **Known limitation (as of typespec-java 0.39.x):** The Java emitter does not fully support external types on Enum/Union definitions. It will still generate the class instead of referencing the JDK type. This is tracked as a bug. Only use Form B for Model types until the emitter is fixed.
+
+#### Form C — External Java type on a single property (model indirection)
+
+Use when you need to override a **single property** to an external Java type, but Form B cannot be used because it would change the type globally, and `{ identity: ... }` cannot be applied directly to properties.
+
+The workaround is a **two-step indirection**: define a dummy model annotated with the external identity, then use `@@alternateType` on the property pointing to that model.
+
+```tsp
+// Step 1: Define a dummy model with the external Java type identity
+@alternateType({ identity: "java.util.TimeZone" }, "java")
+model TimeZoneType {}
+
+// Step 2: Override the property type to use the dummy model
+@@alternateType(OpenAI.ApproximateLocation.timezone, TimeZoneType, "java");
+```
+
+**Why this works:** `@alternateType({identity: ...})` is supported on Model definitions (Form B). The `@@alternateType` on a property accepts any TypeSpec type as the alternate (Form A). By combining both, the property override resolves through the model to the external Java class.
+
+**What does NOT work (and why this form exists):**
+- `{ identity: ... }` directly on a property → compiler error / silently ignored.
+- `@alternateType({identity: ...})` on a `scalar` → the Java emitter ignores the identity and falls back to `BinaryData` (as of typespec-java 0.40.x).
+- `@alternateType({identity: ...})` on a `scalar extends string` → the emitter ignores the identity entirely and uses `String`.
+
+**Important:** The Java emitter generates `writeJsonField` / `TypeName.fromJson(reader)` calls for the overridden property, which will **not compile** because the external Java type (e.g. `java.util.TimeZone`) does not implement `JsonSerializable`. You **must** fix `toJson`/`fromJson` manually — see step 5 below.
 
 ### 3. Apply the override
 
@@ -167,6 +191,10 @@ When the emitter generates incorrect serialization (e.g. `element.name()` instea
      ```
 3. Re-run the unit tests and confirm all three scenarios pass.
 
+**Form C serialization fixes:** When using the model indirection (Form C), the emitter generates `writeJsonField("field", this.field)` and `ExternalType.fromJson(reader)` — both will fail to compile because the external Java type does not implement `JsonSerializable`. Fix by:
+   - **`toJson`**: replace `writeJsonField` with the correct writer method (e.g. `writeStringField("timezone", this.timezone != null ? this.timezone.getID() : null)`)
+   - **`fromJson`**: replace `ExternalType.fromJson(reader)` with the correct factory (e.g. `TimeZone.getTimeZone(reader.getString())`)
+
 ### 6. Apply changes to the local spec repo (if provided)
 
 If the user supplied a local checkout path for `Azure/azure-rest-api-specs`, apply the **same edits** to the `client.java.tsp` there. Derive the file path from `tsp-location.yaml`:
@@ -205,3 +233,5 @@ After confirming the generated code is correct, remind the user:
 | File generated under `src/main/java/java/time/...` | External type identity used on an Enum/Union | Remove the decorator — this is the known emitter bug for Enum/Union external types |
 | Compiler error on `@@alternateType` | Wrong target kind | External types must target type definitions, not properties. TypeSpec built-ins can target properties. |
 | Warning: `external-type-on-model-property` | External type `{ identity: ... }` applied to a property | Move the decorator to the type definition instead |
+| Property becomes `BinaryData` instead of external type | `@alternateType({identity: ...})` used on a `scalar` | Scalars don't support external identity resolution. Use Form C (model indirection) instead. |
+| `writeJsonField` / `fromJson` compile errors after Form C | Emitter treats external type as `JsonSerializable` | Remove `@Generated` from `toJson`/`fromJson` and fix serialization manually (see step 5). |
