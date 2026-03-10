@@ -12,7 +12,7 @@ This repo is split into two top-level directories:
 - **New extensions require a full restart of pi** — `/reload` may not detect newly added extensions.
 
 ## General
-- Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github).
+- Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github, union-type-wrappers).
 - Ask clarifying questions when project/module, commit hash, or test mode is ambiguous.
 - Environment variables set via `wr-load` don't persist across tool calls; if you need them for a command, combine in a single bash call.
 
@@ -40,3 +40,8 @@ This repo is split into two top-level directories:
 
 ## GitHub
 - Use the `github` skill for issues, PRs, CI runs, and advanced API queries via the `gh` CLI.
+
+## Union type wrappers
+- When generated Java models expose `BinaryData` for TypeSpec union-typed fields, use the `union-type-wrappers` skill to add typed getters/setters.
+- Properties typed as `unknown` in TypeSpec stay as `BinaryData` — only unions get wrappers.
+- The `// AI Tooling: union type` comment marks customized properties for future maintainers.
