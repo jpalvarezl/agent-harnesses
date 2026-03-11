@@ -58,7 +58,7 @@ This form is **fully supported** on model properties.
 
 #### Form B — External Java type via identity (on a type definition)
 
-Use when no TypeSpec scalar maps to the desired Java type (e.g. `java.time.DayOfWeek`).
+Use when no TypeSpec scalar maps to the desired Java type (e.g. `java.time.DayOfWeek`), or when you want to **prevent emission of a model entirely** by mapping it to an existing external class (e.g. an openai-java type).
 
 Syntax (applied to the **type definition itself**, not a property):
 
@@ -70,6 +70,8 @@ Syntax (applied to the **type definition itself**, not a property):
 > - External types (`{ identity: ... }`) **cannot** be applied to model properties — they must target the type definition (Model, Enum, Union, Scalar).
 > - A `scope` parameter (e.g. `"java"`) is **required** for external types.
 > - **Known limitation (as of typespec-java 0.39.x):** The Java emitter does not fully support external types on Enum/Union definitions. It will still generate the class instead of referencing the JDK type. This is tracked as a bug. Only use Form B for Model types until the emitter is fixed.
+
+> **De-duplication use case:** Form B can suppress emission of generated models that duplicate an external dependency. For example, `@@alternateType(OpenAI.Reasoning, { identity: "com.openai.models.Reasoning" }, "java")` prevents the codegen from emitting its own `Reasoning` class — any property typed as `OpenAI.Reasoning` will use `com.openai.models.Reasoning` directly. This works for Model types that are members of unions too (e.g. `ComparisonFilter` inside a `Filters` union). See the `dedup-openai` skill for the full workflow including serialization fixes.
 
 #### Form C — External Java type on a single property (model indirection)
 

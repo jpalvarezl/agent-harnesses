@@ -1,13 +1,15 @@
-Verify whether generated classes overlap with openai-java.
+---
+description: Check for duplicate classes between generated models and openai-java, then suppress actionable duplicates
+---
+Verify whether generated classes in this project duplicate openai-java models.
 
 Inputs:
-- Generated source root: {{generated_root}}
-- openai-java dependency (group:artifact) or pom module: {{dependency}}
+- Generated source root: $1
+- openai-java dependency (group:artifact) or pom module: $2
 
 Steps:
-1. Identify the openai-java dependency version from pom.xml if needed.
-2. Locate the openai-java JAR in ~/.m2.
-3. List classes from the JAR and compare against generated classes under the source root.
-4. Report any duplicates and their package names.
-
-Ask for missing inputs before running commands.
+1. Use the `dup-classes` skill to identify duplicates. Categorize each as:
+   - **Actionable** (standalone, can be suppressed) vs **Structural** (hierarchy member, cannot be suppressed)
+2. Generate a DUPLICATES.md report with the findings.
+3. If actionable duplicates are found, ask the user if they want to proceed with suppression.
+4. If yes, use the `dedup-openai` skill to suppress them via @@alternateType in TypeSpec.
