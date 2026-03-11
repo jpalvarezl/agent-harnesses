@@ -179,7 +179,8 @@ void roundTripPreservesValues() throws IOException {
 When the emitter generates incorrect serialization (e.g. `element.name()` instead of PascalCase), you must manually fix the `toJson` and `fromJson` methods in the generated model class:
 
 1. **Remove the `@Generated` annotation** from `toJson` and `fromJson`. This ensures your customizations survive future `tsp-client generate` / `tsp-client update` runs — the codegen will not overwrite methods that lack `@Generated`.
-2. Fix the serialization logic to convert between the Java type and the TSP wire format. For example, for `java.time.DayOfWeek`:
+2. **Place any marker comments inside the method body**, not above the signature. The codegen rewrites everything above the method signature (including javadoc and comments) even for non-`@Generated` methods. Javadoc you write above a non-`@Generated` method will survive, but standalone comments above the signature will be wiped. Place markers like `// AI Tooling: ...` on the first line inside the method body. For fields, place marker comments on the same line (trailing), not on the line above.
+3. Fix the serialization logic to convert between the Java type and the TSP wire format. For example, for `java.time.DayOfWeek`:
    - **`toJson`**: convert `DayOfWeek.MONDAY` → `"Monday"` (PascalCase) using a helper like:
      ```java
      private static String toPascalCase(DayOfWeek day) {

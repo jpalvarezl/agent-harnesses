@@ -101,30 +101,57 @@ BinaryData reasoningData
 reasoning = OpenAIJsonHelper.fromBinaryData(reasoningData, com.openai.models.Reasoning.class);
 ```
 
-**Pattern for getter/setter** — use the openai-java type directly:
+**Pattern for getter/setter** — use the openai-java type directly, with javadoc above and marker comment inside the body:
 ```java
 // Field stores the openai-java type directly (no BinaryData indirection)
-private com.openai.models.Reasoning reasoning;
+private com.openai.models.Reasoning reasoning; // AI Tooling: openai-java de-dup
 
+/**
+ * Gets the reasoning configuration.
+ * @return the reasoning, or null if not set.
+ */
 public com.openai.models.Reasoning getReasoning() {
+    // AI Tooling: openai-java de-dup
     return this.reasoning;
 }
 
+/**
+ * Sets the reasoning configuration.
+ * @param reasoning the reasoning to set.
+ * @return this object.
+ */
 public PromptAgentDefinition setReasoning(com.openai.models.Reasoning reasoning) {
+    // AI Tooling: openai-java de-dup
     this.reasoning = reasoning;
     return this;
 }
 ```
 
-Remove `@Generated` from any method you modify so the codegen preserves your changes on re-generation.
+Remove `@Generated` from any method you modify so the codegen preserves your changes on re-generation. See [Codegen survival rules](#codegen-survival-rules) for comment/javadoc placement.
 
 ### 4. Add typed convenience setters (for BinaryData fields)
 
-When a property is already `BinaryData` (e.g., because it's a union type), add typed setter overloads for the openai-java types:
+When a property is already `BinaryData` (e.g., because it's a union type), add **distinctly named** setter methods for the openai-java types. Do NOT overload `setX` with different parameter types — this causes null-ambiguity. Use descriptive names instead:
 
 ```java
-// AI Tooling: openai-java de-dup
-public FileSearchTool setFilters(com.openai.models.ComparisonFilter filter) {
+/**
+ * Sets the filters using an openai-java ComparisonFilter.
+ * @param filter the filter to apply, or null to clear.
+ * @return this object.
+ */
+public FileSearchTool setComparisonFilter(com.openai.models.ComparisonFilter filter) {
+    // AI Tooling: openai-java de-dup
+    this.filters = OpenAIJsonHelper.toBinaryData(filter);
+    return this;
+}
+
+/**
+ * Sets the filters using an openai-java CompoundFilter.
+ * @param filter the filter to apply, or null to clear.
+ * @return this object.
+ */
+public FileSearchTool setCompoundFilter(com.openai.models.CompoundFilter filter) {
+    // AI Tooling: openai-java de-dup
     this.filters = OpenAIJsonHelper.toBinaryData(filter);
     return this;
 }
@@ -178,6 +205,40 @@ If a local checkout of `Azure/azure-rest-api-specs` is available, apply the same
 <spec_repo>/<directory>/client.tsp
 ```
 
+## Codegen survival rules
+
+The TypeSpec Java codegen (`tsp-client update` / `tsp-client generate`) will re-generate files on every run. Methods **without** `@Generated` are preserved (body intact), but everything **above** the method signature (javadoc, comments) is regenerated. Follow these rules so your manual edits survive:
+
+1. **Remove `@Generated`** from any method you modify. The codegen will not overwrite the method body.
+2. **Place marker comments inside the method body**, not above the signature. The codegen rewrites the javadoc block above the signature but does not touch the body.
+3. **Place javadoc above the method** normally. Since the method lacks `@Generated`, the codegen preserves the javadoc you wrote.
+4. **For field declarations**, place marker comments on the same line (trailing), not on the line above. The codegen regenerates the comment block above the field.
+
+```java
+// ✅ SURVIVES codegen: javadoc above, marker inside body
+/**
+ * Gets the reasoning configuration.
+ * @return the reasoning, or null if not set.
+ */
+public com.openai.models.Reasoning getReasoning() {
+    // AI Tooling: openai-java de-dup  ← inside body, survives
+    return this.reasoning;
+}
+
+// ❌ WIPED by codegen: marker above signature
+// AI Tooling: openai-java de-dup  ← above signature, gets wiped
+public com.openai.models.Reasoning getReasoning() {
+    return this.reasoning;
+}
+
+// ✅ SURVIVES codegen: field marker on same line
+private com.openai.models.Reasoning reasoning; // AI Tooling: openai-java de-dup
+
+// ❌ WIPED by codegen: field marker on line above
+// AI Tooling: openai-java de-dup
+private com.openai.models.Reasoning reasoning;
+```
+
 ## Common pitfalls
 
 | Problem | Cause | Fix |
@@ -187,3 +248,5 @@ If a local checkout of `Azure/azure-rest-api-specs` is available, apply the same
 | `BinaryData.fromString(json).writeTo(writer)` writes quoted string | `fromString` creates text content, not JSON | Use `BinaryData.fromObject(reader.readUntyped())` to store as a JSON object |
 | Getter/setter bridge through BinaryData on every call | Unnecessary indirection | Store the openai-java type directly in the field; bridge only in `toJson`/`fromJson` |
 | Tried to suppress a `Tool` subclass | Structural equivalent, not an actionable duplicate | Don't suppress — it's needed for polymorphic deserialization |
+| Javadoc/comments above method wiped after codegen | Codegen rewrites everything above non-`@Generated` method signatures | Place marker comments inside the method body; javadoc survives if `@Generated` is removed (see [Codegen survival rules](#codegen-survival-rules)) |
+| Overloaded setters cause null ambiguity | `setFilters(null)` matches `BinaryData`, `ComparisonFilter`, and `CompoundFilter` | Use distinct method names: `setComparisonFilter()`, `setCompoundFilter()` |

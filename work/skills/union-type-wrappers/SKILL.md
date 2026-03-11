@@ -86,31 +86,45 @@ For each union type, determine what types the property can hold. Sources:
 
 For each union-typed `BinaryData` property, apply the following pattern:
 
-#### 4a. Mark the property
+#### 4a. Leave the property field as-is
 
-Add the `// AI Tooling: union type` comment and remove `@Generated`:
+Do **not** modify the property declaration. Keep `@Generated`, the block comment, and the visibility exactly as the codegen produced them. The field is already `private` — there is nothing to change.
 
 ```java
 /*
- * Original javadoc...
+ * Original generated block comment.
  */
-// AI Tooling: union type
+@Generated
 private BinaryData myField;
 ```
 
-#### 4b. Make existing getter/setter private
+#### 4b. Make the existing getter and setter private
 
-Remove `@Generated`, rename to `*Internal`, and make `private`:
-
-**For `@Fluent` classes (mutable, with setters):**
+- Remove `@Generated`.
+- Change visibility to `private`.
+- **Keep the original method name** — do NOT rename to `*Internal`.
+- **Keep the original javadoc intact.**
+- Add `// AI Tooling: union type` as the **first line inside the method body**.
 
 ```java
-private BinaryData getMyFieldInternal() {
+/**
+ * Get the myField property: original description.
+ *
+ * @return the myField value.
+ */
+private BinaryData getMyField() {
+    // AI Tooling: union type
     return this.myField;
 }
 
-// AI Tooling: union type
-private MyClass setMyFieldInternal(BinaryData myField) {
+/**
+ * Set the myField property: original description.
+ *
+ * @param myField the myField value to set.
+ * @return the MyClass object itself.
+ */
+private MyClass setMyField(BinaryData myField) {
+    // AI Tooling: union type
     this.myField = myField;
     return this;
 }
@@ -123,15 +137,21 @@ private MyClass setMyFieldInternal(BinaryData myField) {
 - Make the `BinaryData` getter private.
 
 ```java
-// Package-private: used by fromJson deserialization
-// AI Tooling: union type
-ComparisonFilter(ComparisonFilterType type, String key, BinaryData value) {
+/**
+ * Creates an instance of MyFilter class.
+ *
+ * @param type the type value to set.
+ * @param key the key value to set.
+ * @param value the value value to set.
+ */
+MyFilter(MyFilterType type, String key, BinaryData value) {
+    // AI Tooling: union type
     this.type = type;
     this.key = key;
     this.value = value;
 }
 
-public ComparisonFilter(ComparisonFilterType type, String key, String value) {
+public MyFilter(MyFilterType type, String key, String value) {
     this.type = type;
     this.key = key;
     this.value = BinaryData.fromObject(value);
@@ -140,16 +160,32 @@ public ComparisonFilter(ComparisonFilterType type, String key, String value) {
 
 #### 4c. Add typed setters (one per union variant)
 
-Naming convention: **`set<PropertyName>(<VariantType> value)`** — use method overloading when possible.
+Naming convention: **`set<PropertyName>(<VariantType> value)`** — use method overloading.
+
+Copy the javadoc from the original generated setter, adapting the `@param` description to the specific variant type. Add `// AI Tooling: union type` as the first line inside the method body.
 
 ```java
-public MyClass setMyField(String value) {
-    this.myField = BinaryData.fromString(value);
+/**
+ * Set the myField property: original description.
+ *
+ * @param myField the string value to set.
+ * @return the MyClass object itself.
+ */
+public MyClass setMyField(String myField) {
+    // AI Tooling: union type
+    this.myField = BinaryData.fromString(myField);
     return this;
 }
 
-public MyClass setMyField(SomeModel value) {
-    this.myField = BinaryData.fromObject(value);
+/**
+ * Set the myField property: original description.
+ *
+ * @param myField the SomeModel value to set.
+ * @return the MyClass object itself.
+ */
+public MyClass setMyField(SomeModel myField) {
+    // AI Tooling: union type
+    this.myField = BinaryData.fromObject(myField);
     return this;
 }
 ```
@@ -158,7 +194,14 @@ When overloading isn't possible (e.g. two different `String` meanings), disambig
 
 For `List<String>` variants:
 ```java
+/**
+ * Set the allowedTools property: original description.
+ *
+ * @param allowedTools the list of tool name strings to set.
+ * @return the McpTool object itself.
+ */
 public McpTool setAllowedTools(List<String> allowedTools) {
+    // AI Tooling: union type
     this.allowedTools = BinaryData.fromObject(allowedTools);
     return this;
 }
@@ -168,15 +211,29 @@ public McpTool setAllowedTools(List<String> allowedTools) {
 
 Naming convention: **`get<PropertyName>As<TypeName>()`**
 
+Copy the javadoc from the original generated getter, adapting the `@return` description. Add `// AI Tooling: union type` as the first line inside the method body.
+
 ```java
+/**
+ * Get the myField property as a String: original description.
+ *
+ * @return the myField value as a String.
+ */
 public String getMyFieldAsString() {
+    // AI Tooling: union type
     if (this.myField == null) {
         return null;
     }
     return this.myField.toString();
 }
 
+/**
+ * Get the myField property as a {@link SomeModel}: original description.
+ *
+ * @return the myField value as a SomeModel.
+ */
 public SomeModel getMyFieldAsSomeModel() {
+    // AI Tooling: union type
     if (this.myField == null) {
         return null;
     }
@@ -186,8 +243,14 @@ public SomeModel getMyFieldAsSomeModel() {
 
 For `List<String>` variants:
 ```java
+/**
+ * Get the allowedTools property as a list of tool name strings: original description.
+ *
+ * @return the allowedTools value as a list of Strings.
+ */
 @SuppressWarnings("unchecked")
 public List<String> getAllowedToolsAsStringList() {
+    // AI Tooling: union type
     if (this.allowedTools == null) {
         return null;
     }
@@ -251,11 +314,11 @@ All tests must pass before finishing.
 Before reporting completion, verify:
 
 - [ ] Every `BinaryData` property was classified as **union** or **unknown**
-- [ ] Union-typed properties have `// AI Tooling: union type` on the field and the internal setter
-- [ ] `@Generated` removed from modified getters/setters
-- [ ] Original `BinaryData` getter/setter made private (renamed to `*Internal`)
-- [ ] Typed setters added for each union variant
-- [ ] Typed getters added for each union variant (`get*As*()`)
+- [ ] Property fields left exactly as generated (no modifications)
+- [ ] Original `BinaryData` getter/setter made private, name kept, `@Generated` removed, javadoc preserved
+- [ ] `// AI Tooling: union type` placed inside the body of every modified or added getter/setter
+- [ ] Typed setters added for each union variant with javadoc copied from original
+- [ ] Typed getters added for each union variant (`get*As*()`) with javadoc copied from original
 - [ ] All callers (samples, tests, internal code) updated to use new API
 - [ ] Unused `BinaryData` imports removed from callers
 - [ ] Unit tests written and passing for serialization, deserialization, null, and round-trip
