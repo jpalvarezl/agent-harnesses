@@ -39,7 +39,7 @@ Key: `JacksonAdapter` has special handling for `JsonSerializable` types — `Bin
 
 | Union variant | Deserialization | Notes |
 |---|---|---|
-| String | `this.field.toString()` | Works for both `StringContent` and `SerializableContent` |
+| String | `this.field.toObject(String.class)` | Consistent regardless of how BinaryData was created (`fromString` vs `fromObject` during deserialization) |
 | Primitive (Number, Boolean) | `this.field.toObject(Double.class)` etc. | Jackson deserializes raw JSON values |
 | Azure `JsonSerializable` model | `this.field.toObject(ModelClass.class)` | JacksonAdapter calls `fromJson()` |
 | Stainless type | `this.field.toObject(StainlessType.class)` | Jackson deserializes natively |
@@ -98,10 +98,10 @@ Do **not** modify the property declaration. Keep `@Generated`, the block comment
 private BinaryData myField;
 ```
 
-#### 4b. Make the existing getter and setter private
+#### 4b. Make the existing getter and setter package-private
 
 - Remove `@Generated`.
-- Change visibility to `private`.
+- Change visibility to **package-private** (no access modifier). This keeps them hidden from SDK consumers but accessible to unit tests in the same package.
 - **Keep the original method name** — do NOT rename to `*Internal`.
 - **Keep the original javadoc intact.**
 - Add `// AI Tooling: union type` as the **first line inside the method body**.
@@ -112,7 +112,7 @@ private BinaryData myField;
  *
  * @return the myField value.
  */
-private BinaryData getMyField() {
+BinaryData getMyField() {
     // AI Tooling: union type
     return this.myField;
 }
@@ -123,7 +123,7 @@ private BinaryData getMyField() {
  * @param myField the myField value to set.
  * @return the MyClass object itself.
  */
-private MyClass setMyField(BinaryData myField) {
+MyClass setMyField(BinaryData myField) {
     // AI Tooling: union type
     this.myField = myField;
     return this;
@@ -224,7 +224,7 @@ public String getMyFieldAsString() {
     if (this.myField == null) {
         return null;
     }
-    return this.myField.toString();
+    return this.myField.toObject(String.class);
 }
 
 /**
@@ -315,7 +315,7 @@ Before reporting completion, verify:
 
 - [ ] Every `BinaryData` property was classified as **union** or **unknown**
 - [ ] Property fields left exactly as generated (no modifications)
-- [ ] Original `BinaryData` getter/setter made private, name kept, `@Generated` removed, javadoc preserved
+- [ ] Original `BinaryData` getter/setter made package-private, name kept, `@Generated` removed, javadoc preserved
 - [ ] `// AI Tooling: union type` placed inside the body of every modified or added getter/setter
 - [ ] Typed setters added for each union variant with javadoc copied from original
 - [ ] Typed getters added for each union variant (`get*As*()`) with javadoc copied from original
@@ -331,6 +331,6 @@ Before reporting completion, verify:
 | `BinaryData.fromObject(jsonSerializable)` produces wrong JSON | JacksonAdapter not on classpath | Verify `azure-core` dependency includes `JacksonAdapter` |
 | `toObject(AzureModel.class)` fails | JacksonAdapter doesn't find `fromJson` | Use `BinaryData.toObject()` which delegates to `JacksonAdapter.deserialize()` — confirm azure-core ≥ 1.51 |
 | Setter creates `StringContent` but expects raw JSON | Wrong factory method | Use `fromString()` only for string tokens; use `fromObject()` for primitives and objects |
-| Test fails on deserialized value comparison | Asymmetry between `fromString`/`fromObject` for string values | Deserialization always uses `fromObject(readUntyped())`, producing `SerializableContent`. Getters must handle both content types. |
+| Test fails on deserialized value comparison | Asymmetry between `fromString`/`fromObject` for string values | Deserialization always uses `fromObject(readUntyped())`, producing `SerializableContent`. Use `toObject(String.class)` in string getters — never `toString()` — to normalize both paths. |
 | Compilation error: cannot find `List` | Missing import after adding `List<String>` setter | Add `import java.util.List;` |
 | `@SuppressWarnings` needed | Unchecked cast on `toObject(List.class)` | Add `@SuppressWarnings("unchecked")` to the method |
