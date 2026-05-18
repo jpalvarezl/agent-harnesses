@@ -135,6 +135,67 @@ Scan, dispatch, and merge parallel agent work via git worktrees. Registers comma
 /broadcast <message>    # broadcast to other sessions
 ```
 
+## Using these skills with GitHub Copilot CLI
+
+The skills in this repo were originally written for **pi**, but the `SKILL.md`
+format is the same one [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli)
+uses, so they work there too with one caveat: Copilot CLI does **not** currently
+support a configurable "skills directory" list. It only auto-discovers skills
+from a single fixed location:
+
+```
+~/.copilot/skills/<skill-name>/SKILL.md
+```
+
+To expose this repo's skills there without copying files, we link each skill
+folder into `~/.copilot/skills/`. The provided scripts are idempotent and
+preserve any skills you already have installed under that directory.
+
+### Windows (PowerShell)
+
+```powershell
+# from the repo root
+pwsh ./scripts/install-copilot-cli-skills.ps1               # link everything
+pwsh ./scripts/install-copilot-cli-skills.ps1 -Work         # work skills only
+pwsh ./scripts/install-copilot-cli-skills.ps1 -Personal     # personal skills only
+pwsh ./scripts/install-copilot-cli-skills.ps1 -DryRun       # preview
+```
+
+The Windows script creates directory **junctions**, which don't require admin
+or Developer Mode.
+
+### macOS / Linux
+
+```bash
+# from the repo root
+./scripts/install-copilot-cli-skills.sh                # link everything
+./scripts/install-copilot-cli-skills.sh --work         # work skills only
+./scripts/install-copilot-cli-skills.sh --personal     # personal skills only
+./scripts/install-copilot-cli-skills.sh --dry-run      # preview
+```
+
+### Verifying
+
+After running the script, restart Copilot CLI and run:
+
+```text
+/skills      # list available skills
+/env         # show loaded skills, instructions, MCP servers, etc.
+```
+
+Because the entries are links into this repo, a `git pull` (or local edit of
+any `SKILL.md`) is picked up by Copilot CLI on its next session — no copying
+or re-running the installer needed.
+
+### Caveats / scope
+
+- Only **skills** are wired up this way. Copilot CLI has no equivalent for
+  pi's `prompts` or `extensions` arrays; those remain pi-only.
+- Project-local skills directories aren't supported by Copilot CLI. The links
+  in `~/.copilot/skills/` apply globally to every Copilot CLI session.
+- Repo-specific guidance is still picked up via `AGENTS.md` (in the git root
+  and cwd) and `.github/instructions/**/*.instructions.md`.
+
 ## Notes
 - Skills can also be triggered implicitly by natural language requests.
 - Settings changes require a restart; skill/prompt edits can be picked up with `/reload`.
