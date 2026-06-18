@@ -1,6 +1,16 @@
 ---
 name: work-resources
-description: Manage Azure KeyVault test/dev secrets via the work-resources `wr-*` CLI (wr-setup, wr-save, wr-update, wr-load, wr-list, wr-delete, wr-clear, wr-add-user, wr-migrate). Use for provisioning a vault, saving and updating secrets, loading secrets into the current shell as environment variables, listing/inspecting vault contents, deleting secrets, clearing loaded env vars, granting team access, or migrating legacy secrets that lack the required tags. Supports a two-dimensional `resource` + `flavor` filter for projects that mirror multi-file env folders (e.g. `.azure/<deployment>/{.env,.superset.env,.py.env,...}`).
+description: >-
+  Manage Azure KeyVault test/dev secrets via the work-resources `wr-*` CLI (wr-setup,
+  wr-save, wr-update, wr-load, wr-list, wr-delete, wr-clear, wr-add-user, wr-migrate). Use
+  for provisioning a vault, saving and updating secrets, loading secrets into the current
+  shell as environment variables, listing/inspecting vault contents, deleting secrets,
+  clearing loaded env vars, granting team access, or migrating legacy secrets that lack the
+  required tags. Supports a two-dimensional `resource` + `flavor` filter for projects that
+  mirror multi-file env folders (e.g. `.azure/<deployment>/{.env,.superset.env,.py.env,...}`).
+  This skill is the loader/manager; when the user asks which known resource/flavor to use for
+  a product feature or SDK sample set, consult the sibling `work-resource-index` skill first,
+  then use this skill's `wr-*` commands to load or manage it.
 ---
 
 # Work Resources (Azure KeyVault)
@@ -14,6 +24,17 @@ secrets backed by Azure KeyVault. Secrets are organised by two tags:
   Legacy secrets without a flavor tag are still supported.
 
 Both tags can be filtered on by `wr-load`, `wr-list`, `wr-clear`, and `wr-delete`.
+
+## Relationship to the `work-resource-index` skill
+
+This skill manages and loads KeyVault-backed secrets. The sibling
+[`work-resource-index`](../work-resource-index/SKILL.md) skill depends on this one and records
+verified mappings from product features / SDK sample sets to the `resource` + `flavor` values
+that run them live.
+
+When the user asks *which* work resource to use for a feature or sample set, consult
+`work-resource-index` first, then return here for the appropriate `wr-load`, `wr-list`, or
+other `wr-*` command.
 
 ## Prerequisite
 
