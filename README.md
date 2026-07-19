@@ -27,7 +27,8 @@ Add both paths in your global settings (`~/.pi/agent/settings.json`):
   ],
   "extensions": [
     "~/path/to/agent-harnesses/work/extensions/my-extension",
-    "~/path/to/agent-harnesses/personal/extensions/dispatch"
+    "~/path/to/agent-harnesses/personal/extensions/dispatch",
+    "~/path/to/agent-harnesses/personal/extensions/peer-agents"
   ],
   "enableSkillCommands": true
 }
@@ -133,6 +134,20 @@ Scan, dispatch, and merge parallel agent work via git worktrees. Registers comma
 /dispatch status        # show active worktrees
 /sessions               # show live sessions and broadcasts
 /broadcast <message>    # broadcast to other sessions
+```
+
+### `peer-agents`
+Run isolated, read-only peer agents using a different model family. Registers two model-callable tools:
+
+- `rubber_duck` challenges designs and assumptions. A GPT parent prefers a configured high-capability Claude Opus model; a Claude parent prefers a configured stable GPT model. The preference list can include model IDs before they become available, so newer models are adopted when the local provider exposes them.
+- `code_review` reviews committed branch changes plus staged and unstaged local changes against the requested base (or the repository's default branch).
+
+Pi executes sibling tool calls concurrently, so the main agent can issue multiple independent `rubber_duck` calls in one turn for parallel feedback. The tools also instruct the main agent to run `code_review` after substantive changes and before `git push` or `gh pr create`.
+
+```text
+Bounce this caching design off the rubber duck agent.
+Review my local diff against origin/main before creating the PR.
+Ask two rubber duck agents in parallel to evaluate the API and concurrency designs.
 ```
 
 ## Using these skills with GitHub Copilot CLI
