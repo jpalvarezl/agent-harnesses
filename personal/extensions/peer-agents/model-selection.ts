@@ -6,6 +6,11 @@ export interface ModelReference {
 
 export type ModelFamily = "claude" | "gpt" | "other";
 
+export interface PeerModelSelection {
+  model: ModelReference;
+  crossFamily: boolean;
+}
+
 const CLAUDE_PREFERENCES = [
   "claude-opus-4.9",
   "claude-opus-4.8",
@@ -91,4 +96,24 @@ export function selectPeerModel(
     pickPreferred(candidates, "claude", current?.provider) ??
     pickPreferred(candidates, "gpt", current?.provider)
   );
+}
+
+/** Prefer an opposite-family peer, then degrade loudly to a different available model. */
+export function selectPeerModelWithFallback(
+  current: ModelReference | undefined,
+  available: ModelReference[],
+): PeerModelSelection | undefined {
+  const opposite = selectPeerModel(current, available);
+  if (opposite) return { model: opposite, crossFamily: true };
+
+  const candidates = available.filter(
+    (model) => !current || model.provider !== current.provider || model.id !== current.id,
+  );
+  const currentFamily = current ? getModelFamily(current) : "other";
+  let fallback: ModelReference | undefined;
+  if (currentFamily === "gpt" || currentFamily === "claude") {
+    fallback = pickPreferred(candidates, currentFamily, current?.provider);
+  }
+  fallback ??= candidates[0];
+  return fallback ? { model: fallback, crossFamily: false } : undefined;
 }

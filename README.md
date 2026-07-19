@@ -137,12 +137,14 @@ Scan, dispatch, and merge parallel agent work via git worktrees. Registers comma
 ```
 
 ### `peer-agents`
-Run isolated, read-only peer agents using a different model family. Registers two model-callable tools:
+Run isolated, read-only peer agents, preferably using a different model family. Registers two model-callable tools:
 
-- `rubber_duck` challenges designs and assumptions. A GPT parent prefers a configured high-capability Claude Opus model; a Claude parent prefers a configured stable GPT model. The preference list can include model IDs before they become available, so newer models are adopted when the local provider exposes them.
-- `code_review` reviews committed branch changes plus staged and unstaged local changes against the requested base (or the repository's default branch).
+- `rubber_duck` challenges designs and assumptions. A GPT parent prefers a configured high-capability Claude Opus model; a Claude parent prefers a configured stable GPT model. If no opposite-family model is authenticated, it explicitly reports that it is using a different same-family model instead.
+- `code_review` reviews committed, staged, unstaged, and untracked changes against the requested base (or the repository's default branch). It runs from the Git root so repository-relative paths work even when the parent session starts in a subdirectory.
 
-Pi executes sibling tool calls concurrently, so the main agent can issue multiple independent `rubber_duck` calls in one turn for parallel feedback. The tools also instruct the main agent to run `code_review` after substantive changes and before `git push` or `gh pr create`.
+Pi executes sibling tool calls concurrently. The extension permits four peer subprocesses by default, queues additional calls, enforces a five-minute timeout per running peer, and propagates cancellation. Override these defaults with `PI_PEER_AGENT_MAX_CONCURRENCY` and `PI_PEER_AGENT_TIMEOUT_MS`.
+
+The tools instruct the main agent to run `code_review` after substantive changes and before `git push` or `gh pr create`. Reviews are advisory and must be verified against tests and repository evidence. Peer prompts, diffs, and files read by the peer are sent to the selected model's configured provider, which may differ from the parent model's provider; use these tools only when that data egress is acceptable.
 
 ```text
 Bounce this caching design off the rubber duck agent.

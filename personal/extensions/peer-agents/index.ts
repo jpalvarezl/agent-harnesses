@@ -3,9 +3,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { selectPeerModel, type ModelReference } from "./model-selection.ts";
+import {
+  selectPeerModelWithFallback,
+  type ModelReference,
+  type PeerModelSelection,
+} from "./model-selection.ts";
+import { createReviewSnapshot, type GitRunner } from "./review-snapshot.ts";
+import {
+  AsyncSemaphore,
+  capTailText,
+  positiveIntegerFromEnv,
+} from "./runtime-utils.ts";
 
-const MAX_REVIEW_BYTES = 200 * 1024;
+const DEFAULT_PEER_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_STDERR_BYTES = 20 * 1024;
 
 interface ChildResult {
@@ -13,16 +24,6 @@ interface ChildResult {
   model: ModelReference;
   stderr: string;
   turns: number;
-}
-
-interface ReviewSnapshot {
-  root: string;
-  baseLabel: string;
-  baseCommit: string;
-  status: string;
-  stat: string;
-  diff: string;
-  truncated: boolean;
 }
 
 const RUBBER_DUCK_PROMPT = `You are a rigorous but collaborative rubber-duck partner.
@@ -74,34 +75,20 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
   return { command: "pi", args };
 }
 
-function capText(value: string, maxBytes: number): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= maxBytes) return { text: value, truncated: false };
-
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let end = maxBytes;
-  while (end > 0) {
-    try {
-      return { text: decoder.decode(bytes.subarray(0, end)), truncated: true };
-    } catch {
-      // A UTF-8 code point straddles the boundary; at most three bytes need removal.
-      end -= 1;
-    }
-  }
-  return { text: "", truncated: true };
-}
-
 function modelSpec(model: ModelReference): string {
   return `${model.provider}/${model.id}`;
 }
 
-function choosePeerModel(ctx: ExtensionContext): ModelReference {
-  const available = ctx.modelRegistry.getAvailable();
-  const selected = selectPeerModel(ctx.model, available);
+function selectionLabel(selection: PeerModelSelection): string {
+  return selection.crossFamily
+    ? modelSpec(selection.model)
+    : `${modelSpec(selection.model)} (same-family fallback)`;
+}
+
+function choosePeerModel(ctx: ExtensionContext): PeerModelSelection {
+  const selected = selectPeerModelWithFallback(ctx.model, ctx.modelRegistry.getAvailable());
   if (!selected) {
-    throw new Error(
-      "No authenticated model from the opposite GPT/Claude family is available. Run /login or configure another provider.",
-    );
+    throw new Error("No authenticated peer model is available. Run /login or configure another model.");
   }
   return selected;
 }
@@ -112,196 +99,150 @@ async function runPeer(
   systemPrompt: string,
   task: string,
   signal: AbortSignal | undefined,
-  onStatus?: (message: string) => void,
+  options: {
+    cwd?: string;
+    timeoutMs: number;
+    semaphore: AsyncSemaphore;
+    onStatus?: (message: string) => void;
+  },
 ): Promise<ChildResult> {
-  const args = [
-    "--mode",
-    "json",
-    "-p",
-    "--no-session",
-    "--no-extensions",
-    "--no-skills",
-    "--no-prompt-templates",
-    "--model",
-    modelSpec(model),
-    "--thinking",
-    "high",
-    "--tools",
-    "read,grep,find,ls",
-    "--system-prompt",
-    systemPrompt,
-  ];
-  const invocation = getPiInvocation(args);
+  const release = await options.semaphore.acquire(signal);
+  try {
+    const args = [
+      "--mode",
+      "json",
+      "-p",
+      "--no-session",
+      "--no-extensions",
+      "--no-skills",
+      "--no-prompt-templates",
+      "--model",
+      modelSpec(model),
+      "--thinking",
+      "high",
+      "--tools",
+      "read,grep,find,ls",
+      "--system-prompt",
+      systemPrompt,
+    ];
+    const invocation = getPiInvocation(args);
 
-  return await new Promise<ChildResult>((resolve, reject) => {
-    const child = spawn(invocation.command, invocation.args, {
-      cwd: ctx.cwd,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stdoutBuffer = "";
-    let stderr = "";
-    let finalOutput = "";
-    let modelError: string | undefined;
-    let turns = 0;
-    let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const finish = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      signal?.removeEventListener("abort", abort);
-      callback();
-    };
-
-    const processLine = (line: string) => {
-      if (!line.trim()) return;
-      let event: any;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        return;
-      }
-
-      if (event.type === "tool_execution_start") {
-        onStatus?.(`Peer reading with ${event.toolName}…`);
-      }
-      if (event.type === "message_end" && event.message?.role === "assistant") {
-        turns += 1;
-        const text = (event.message.content ?? [])
-          .filter((part: any) => part.type === "text")
-          .map((part: any) => part.text)
-          .join("");
-        if (text) finalOutput = text;
-        if (event.message.stopReason === "error") {
-          modelError = event.message.errorMessage ?? "Peer model returned an error";
-          stderr += `\n${modelError}`;
-        }
-      }
-    };
-
-    const abort = () => {
-      child.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    };
-
-    child.stdout.on("data", (chunk) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split("\n");
-      stdoutBuffer = lines.pop() ?? "";
-      for (const line of lines) processLine(line);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr = capText(stderr + chunk.toString(), MAX_STDERR_BYTES).text;
-    });
-    child.stdin.on("error", (error) => {
-      // The child may exit before consuming the prompt; let the close handler report it.
-      stderr = capText(`${stderr}\n${error.message}`, MAX_STDERR_BYTES).text;
-    });
-    child.on("error", (error) => finish(() => reject(error)));
-    child.on("close", (code) => {
-      if (stdoutBuffer.trim()) processLine(stdoutBuffer);
-      finish(() => {
-        if (signal?.aborted) {
-          reject(new Error("Peer agent was aborted"));
-        } else if (modelError) {
-          reject(new Error(modelError));
-        } else if (code !== 0 || !finalOutput) {
-          reject(new Error(stderr.trim() || `Peer agent exited with code ${code ?? "unknown"}`));
-        } else {
-          resolve({ output: finalOutput, model, stderr, turns });
-        }
+    return await new Promise<ChildResult>((resolve, reject) => {
+      const child = spawn(invocation.command, invocation.args, {
+        cwd: options.cwd ?? ctx.cwd,
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"],
       });
+
+      let stdoutBuffer = "";
+      let stderr = "";
+      let finalOutput = "";
+      let modelError: string | undefined;
+      let turns = 0;
+      let settled = false;
+      let timedOut = false;
+      let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+      let executionTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (executionTimer) clearTimeout(executionTimer);
+        signal?.removeEventListener("abort", terminate);
+        callback();
+      };
+
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        let event: any;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+
+        if (event.type === "tool_execution_start") {
+          options.onStatus?.(`Peer reading with ${event.toolName}…`);
+        }
+        if (event.type === "message_end" && event.message?.role === "assistant") {
+          turns += 1;
+          const text = (event.message.content ?? [])
+            .filter((part: any) => part.type === "text")
+            .map((part: any) => part.text)
+            .join("");
+          if (text) finalOutput = text;
+          if (event.message.stopReason === "error") {
+            modelError = event.message.errorMessage ?? "Peer model returned an error";
+            stderr = capTailText(`${stderr}\n${modelError}`, MAX_STDERR_BYTES).text;
+          }
+        }
+      };
+
+      const terminate = () => {
+        child.kill("SIGTERM");
+        if (!forceKillTimer) forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+      };
+
+      child.stdout.on("data", (chunk) => {
+        stdoutBuffer += chunk.toString();
+        const lines = stdoutBuffer.split("\n");
+        stdoutBuffer = lines.pop() ?? "";
+        for (const line of lines) processLine(line);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr = capTailText(stderr + chunk.toString(), MAX_STDERR_BYTES).text;
+      });
+      child.stdin.on("error", (error) => {
+        stderr = capTailText(`${stderr}\n${error.message}`, MAX_STDERR_BYTES).text;
+      });
+      child.on("error", (error) => finish(() => reject(error)));
+      child.on("close", (code) => {
+        if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+        finish(() => {
+          if (timedOut) {
+            reject(new Error(`Peer agent timed out after ${Math.round(options.timeoutMs / 1000)} seconds`));
+          } else if (signal?.aborted) {
+            reject(new Error("Peer agent was aborted"));
+          } else if (modelError) {
+            reject(new Error(modelError));
+          } else if (code !== 0 || !finalOutput) {
+            reject(new Error(stderr.trim() || `Peer agent exited with code ${code ?? "unknown"}`));
+          } else {
+            resolve({ output: finalOutput, model, stderr, turns });
+          }
+        });
+      });
+
+      executionTimer = setTimeout(() => {
+        timedOut = true;
+        terminate();
+      }, options.timeoutMs);
+      if (signal?.aborted) terminate();
+      else signal?.addEventListener("abort", terminate, { once: true });
+
+      child.stdin.end(task);
     });
-
-    if (signal?.aborted) abort();
-    else signal?.addEventListener("abort", abort, { once: true });
-
-    child.stdin.end(task);
-  });
-}
-
-async function execGit(pi: ExtensionAPI, cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
-  const result = await pi.exec("git", args, { cwd, signal });
-  if (result.code !== 0) {
-    throw new Error(result.stderr.trim() || `git ${args.join(" ")} failed`);
+  } finally {
+    release();
   }
-  return result.stdout.trimEnd();
-}
-
-async function refExists(pi: ExtensionAPI, cwd: string, ref: string, signal?: AbortSignal): Promise<boolean> {
-  const result = await pi.exec("git", ["rev-parse", "--verify", "--quiet", ref], { cwd, signal });
-  return result.code === 0;
-}
-
-async function resolveBase(
-  pi: ExtensionAPI,
-  cwd: string,
-  requested: string | undefined,
-  signal?: AbortSignal,
-): Promise<{ label: string; commit: string }> {
-  let label = requested?.trim();
-  if (!label) {
-    const originHead = await pi.exec("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
-      cwd,
-      signal,
-    });
-    if (originHead.code === 0 && originHead.stdout.trim()) label = originHead.stdout.trim();
-  }
-
-  for (const fallback of ["origin/main", "main", "origin/master", "master"]) {
-    if (!label && (await refExists(pi, cwd, fallback, signal))) label = fallback;
-  }
-  label ??= "HEAD";
-
-  if (label === "HEAD") return { label, commit: "HEAD" };
-  const mergeBase = await execGit(pi, cwd, ["merge-base", "HEAD", label], signal);
-  if (!mergeBase) throw new Error(`Could not determine merge base with ${label}`);
-  return { label, commit: mergeBase };
-}
-
-async function createReviewSnapshot(
-  pi: ExtensionAPI,
-  ctx: ExtensionContext,
-  base: string | undefined,
-  signal?: AbortSignal,
-): Promise<ReviewSnapshot> {
-  const root = await execGit(pi, ctx.cwd, ["rev-parse", "--show-toplevel"], signal);
-  const resolved = await resolveBase(pi, root, base, signal);
-  const status = await execGit(pi, root, ["status", "--short", "--untracked-files=all"], signal);
-  const stat = await execGit(pi, root, ["diff", "--stat", resolved.commit], signal);
-  const rawDiff = await execGit(
-    pi,
-    root,
-    ["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=40", resolved.commit],
-    signal,
-  );
-  const capped = capText(rawDiff, MAX_REVIEW_BYTES);
-
-  if (!status && !rawDiff) {
-    throw new Error(`No changes found relative to ${resolved.label} (${resolved.commit.slice(0, 12)})`);
-  }
-
-  return {
-    root,
-    baseLabel: resolved.label,
-    baseCommit: resolved.commit,
-    status: status || "(clean status; committed branch changes only)",
-    stat: stat || "(no tracked-file stat)",
-    diff: capped.text || "(no tracked diff; inspect untracked files listed in status)",
-    truncated: capped.truncated,
-  };
 }
 
 export default function peerAgents(pi: ExtensionAPI) {
+  const timeoutMs = positiveIntegerFromEnv(process.env.PI_PEER_AGENT_TIMEOUT_MS, DEFAULT_PEER_TIMEOUT_MS);
+  const maxConcurrency = positiveIntegerFromEnv(
+    process.env.PI_PEER_AGENT_MAX_CONCURRENCY,
+    DEFAULT_MAX_CONCURRENCY,
+  );
+  const semaphore = new AsyncSemaphore(maxConcurrency);
+  const runGit: GitRunner = (cwd, args, signal) => pi.exec("git", args, { cwd, signal });
+
   pi.registerTool({
     name: "rubber_duck",
     label: "Rubber Duck",
     description:
-      "Ask an independent peer model from the opposite GPT/Claude family to challenge an idea or design. The peer is read-only and returns questions, tradeoffs, and a recommendation.",
-    promptSnippet: "Get a critical second opinion from a different model family",
+      "Ask an independent read-only peer, preferably from the opposite GPT/Claude family, to challenge an idea or design. Returns questions, tradeoffs, and a recommendation.",
+    promptSnippet: "Get a critical second opinion, preferably from a different model family",
     promptGuidelines: [
       "Use rubber_duck when the user asks for a second opinion, when a nontrivial design has competing approaches, or when reasoning is stuck.",
       "Independent rubber_duck calls in the same assistant turn run concurrently and are appropriate when several ideas can be evaluated in parallel.",
@@ -311,10 +252,10 @@ export default function peerAgents(pi: ExtensionAPI) {
       question: Type.Optional(Type.String({ description: "A specific uncertainty for the peer to focus on" })),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
-      const model = choosePeerModel(ctx);
+      const selection = choosePeerModel(ctx);
       onUpdate?.({
-        content: [{ type: "text", text: `Consulting ${modelSpec(model)}…` }],
-        details: { model },
+        content: [{ type: "text", text: `Consulting ${selectionLabel(selection)}…` }],
+        details: selection,
       });
       const task = [
         "A coding agent wants to bounce the following idea off you.",
@@ -322,12 +263,24 @@ export default function peerAgents(pi: ExtensionAPI) {
         params.question ? `\n## Focus question\n${params.question}` : "",
         `\nThe originating agent is using ${ctx.model ? modelSpec(ctx.model) : "an unknown model"}; provide a genuinely independent perspective.`,
       ].join("\n");
-      const result = await runPeer(ctx, model, RUBBER_DUCK_PROMPT, task, signal, (message) => {
-        onUpdate?.({ content: [{ type: "text", text: message }], details: { model } });
+      const result = await runPeer(ctx, selection.model, RUBBER_DUCK_PROMPT, task, signal, {
+        timeoutMs,
+        semaphore,
+        onStatus: (message) => {
+          onUpdate?.({ content: [{ type: "text", text: message }], details: selection });
+        },
       });
+      const fallbackNotice = selection.crossFamily
+        ? ""
+        : "\nNote: no opposite-family model was authenticated; this used a different same-family model.\n";
       return {
-        content: [{ type: "text", text: `Peer model: ${modelSpec(model)}\n\n${result.output}` }],
-        details: result,
+        content: [
+          {
+            type: "text",
+            text: `Peer model: ${selectionLabel(selection)}${fallbackNotice}\n${result.output}`,
+          },
+        ],
+        details: { ...result, ...selection },
       };
     },
   });
@@ -336,8 +289,8 @@ export default function peerAgents(pi: ExtensionAPI) {
     name: "code_review",
     label: "Code Review",
     description:
-      "Dispatch an independent read-only peer agent to review the complete local diff, including committed branch changes and working-tree changes. Use before push/PR creation and whenever the user requests review.",
-    promptSnippet: "Review the local git diff with an independent model family",
+      "Dispatch an independent read-only peer to review the complete local diff, including committed, staged, unstaged, and untracked changes. Use before push/PR creation and whenever the user requests review.",
+    promptSnippet: "Review the complete local git diff with an independent peer model",
     promptGuidelines: [
       "Use code_review after substantive code changes and before running git push or gh pr create; address BLOCK or REVISE findings before pushing.",
       "Use code_review whenever the user requests review of local changes. The review agent is read-only and must not replace running the relevant tests.",
@@ -350,15 +303,15 @@ export default function peerAgents(pi: ExtensionAPI) {
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       onUpdate?.({ content: [{ type: "text", text: "Capturing local diff…" }], details: {} });
-      const snapshot = await createReviewSnapshot(pi, ctx, params.base, signal);
-      const model = choosePeerModel(ctx);
+      const snapshot = await createReviewSnapshot(runGit, ctx.cwd, params.base, signal);
+      const selection = choosePeerModel(ctx);
       onUpdate?.({
-        content: [{ type: "text", text: `Reviewing with ${modelSpec(model)}…` }],
-        details: { model, base: snapshot.baseLabel },
+        content: [{ type: "text", text: `Reviewing with ${selectionLabel(selection)}…` }],
+        details: { ...selection, base: snapshot.baseLabel },
       });
 
       const truncationNote = snapshot.truncated
-        ? "\nThe inline diff was truncated at 200 KiB. Use read/grep/find/ls to inspect all changed files identified by status and diff stat before reaching a verdict."
+        ? "\nSome inline diff content was truncated or omitted (for example, binary or non-regular files). Use read/grep/find/ls from the repository root to inspect every changed file identified by status and diff stat before reaching a verdict."
         : "";
       const task = `Review the repository changes below.
 
@@ -376,26 +329,34 @@ ${snapshot.status}
 ${snapshot.stat}
 \`\`\`
 
-## Diff
+## Diff (includes bounded textual snapshots of untracked regular files)
 \`\`\`diff
 ${snapshot.diff}
 \`\`\`${truncationNote}
 
 Check the surrounding implementation and tests with read-only tools. Report only findings introduced by or relevant to this change set.`;
-      const result = await runPeer(ctx, model, CODE_REVIEW_PROMPT, task, signal, (message) => {
-        onUpdate?.({
-          content: [{ type: "text", text: message }],
-          details: { model, base: snapshot.baseLabel },
-        });
+      const result = await runPeer(ctx, selection.model, CODE_REVIEW_PROMPT, task, signal, {
+        cwd: snapshot.root,
+        timeoutMs,
+        semaphore,
+        onStatus: (message) => {
+          onUpdate?.({
+            content: [{ type: "text", text: message }],
+            details: { ...selection, base: snapshot.baseLabel },
+          });
+        },
       });
+      const fallbackNotice = selection.crossFamily
+        ? ""
+        : "\nModel selection: same-family fallback because no opposite-family model was authenticated.\n";
       return {
         content: [
           {
             type: "text",
-            text: `Review model: ${modelSpec(model)}\nBase: ${snapshot.baseLabel} (${snapshot.baseCommit.slice(0, 12)})\n\n${result.output}`,
+            text: `Review model: ${selectionLabel(selection)}\nBase: ${snapshot.baseLabel} (${snapshot.baseCommit.slice(0, 12)})${fallbackNotice}\n${result.output}`,
           },
         ],
-        details: { ...result, snapshot },
+        details: { ...result, ...selection, snapshot },
       };
     },
   });

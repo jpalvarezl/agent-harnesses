@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getModelFamily, selectPeerModel, type ModelReference } from "./model-selection.ts";
+import {
+  getModelFamily,
+  selectPeerModel,
+  selectPeerModelWithFallback,
+  type ModelReference,
+} from "./model-selection.ts";
 
 const available: ModelReference[] = [
   { provider: "github-copilot", id: "claude-opus-4.7" },
@@ -43,6 +48,29 @@ test("returns undefined when no opposite-family model is available", () => {
     selectPeerModel(
       { provider: "github-copilot", id: "gpt-5.5" },
       [{ provider: "github-copilot", id: "gpt-5.4" }],
+    ),
+    undefined,
+  );
+});
+
+test("falls back to a different same-family model and marks the fallback", () => {
+  assert.deepEqual(
+    selectPeerModelWithFallback(
+      { provider: "github-copilot", id: "gpt-5.5" },
+      [{ provider: "github-copilot", id: "gpt-5.4" }],
+    ),
+    {
+      model: { provider: "github-copilot", id: "gpt-5.4" },
+      crossFamily: false,
+    },
+  );
+});
+
+test("does not fall back to the current model", () => {
+  assert.equal(
+    selectPeerModelWithFallback(
+      { provider: "github-copilot", id: "gpt-5.5" },
+      [{ provider: "github-copilot", id: "gpt-5.5" }],
     ),
     undefined,
   );
