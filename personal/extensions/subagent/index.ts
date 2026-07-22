@@ -504,21 +504,19 @@ async function runSingleAgent(
 	}
 }
 
+import {
+	classifyAfterMerge,
+	classifyBeforeMerge,
+	type IsolationOutcome,
+	isSuccessOutcome,
+	shouldRemoveWorktree,
+} from "./isolation-policy.ts";
+
 interface IsolationTask {
 	agent: string;
 	task: string;
 	model?: string;
 }
-
-type IsolationOutcome =
-	| "merged"
-	| "no-changes"
-	| "conflict"
-	| "build-failed"
-	| "merge-error"
-	| "agent-failed"
-	| "commit-failed"
-	| "aborted";
 
 function firstLine(text: string, max = 72): string {
 	const line = text.split("\n", 1)[0].trim();
@@ -698,73 +696,60 @@ async function runIsolatedParallel(opts: {
 		if (commitResults[i].error) results[i].stderr += `\n[commit] ${commitResults[i].error}`;
 	}
 
-	// Merge sequentially into the parent checkout (clean-merge-only).
+	// Merge sequentially into the parent checkout (clean-merge-only). Each step
+	// gathers facts, performs the necessary git side effects, then defers the
+	// outcome decision to the pure policy in isolation-policy.ts.
 	const outcomes: IsolationOutcome[] = new Array(tasks.length);
 	for (let i = 0; i < tasks.length; i++) {
-		if (isAborted()) {
-			outcomes[i] = "aborted";
+		const pre = classifyBeforeMerge({
+			aborted: isAborted(),
+			agentFailed: isFailedResult(results[i]),
+			commitFailed: Boolean(commitResults[i].error),
+			committed: commitResults[i].committed,
+		});
+		if (pre !== "proceed") {
+			outcomes[i] = pre;
 			continue;
 		}
-		if (isFailedResult(results[i])) {
-			outcomes[i] = "agent-failed";
-			continue;
-		}
-		// A failed commit must NOT be treated as "no changes": that would delete the
-		// agent's work under on-success cleanup. Preserve it for inspection instead.
-		if (commitResults[i].error) {
-			outcomes[i] = "commit-failed";
-			continue;
-		}
-		if (!commitResults[i].committed) {
-			outcomes[i] = "no-changes";
-			continue;
-		}
+
 		const preSha = await getHeadSha(gitRoot);
 		const merge = await mergeBranchNoFF(gitRoot, worktrees[i].branch);
-		if (merge.status === "conflict") {
-			outcomes[i] = "conflict";
-			results[i].stderr += `\n[merge] conflicts in: ${merge.conflictFiles.join(", ")}`;
-			continue;
-		}
-		if (merge.status === "error") {
-			outcomes[i] = "merge-error";
-			results[i].stderr += `\n[merge] ${merge.error ?? "failed"}`;
-			continue;
-		}
-		// The merge itself is not abortable; if a cancel landed while it ran, roll it
-		// back so we never leave a merge the user canceled (covers the no-build case).
-		if (isAborted()) {
-			if (!(await rollbackTo(preSha)))
-				results[i].stderr += `\n[rollback] WARNING: parent checkout may not be clean after aborting merge`;
-			outcomes[i] = "aborted";
-			continue;
-		}
-		if (buildCommand) {
-			const build = await runBuildCheck(gitRoot, buildCommand, signal);
-			if (!build.success) {
-				// Roll back the merge and remove any generated (untracked) build output.
+		if (merge.status === "conflict") results[i].stderr += `\n[merge] conflicts in: ${merge.conflictFiles.join(", ")}`;
+		if (merge.status === "error") results[i].stderr += `\n[merge] ${merge.error ?? "failed"}`;
+
+		// Side effects for a clean merge: honor a late abort, run the build gate, and
+		// roll back as needed so the parent tree stays clean for the next merge.
+		let abortedAfterMerge = false;
+		let build: { success: boolean; aborted: boolean } | undefined;
+		if (merge.status === "clean") {
+			if (isAborted()) {
+				abortedAfterMerge = true;
 				if (!(await rollbackTo(preSha)))
-					results[i].stderr += `\n[rollback] WARNING: parent checkout may not be clean after rollback`;
-				outcomes[i] = build.aborted ? "aborted" : "build-failed";
-				if (!build.aborted)
-					results[i].stderr += `\n[build] failed after merge (rolled back):\n${build.output.slice(-2000)}`;
-				continue;
+					results[i].stderr += `\n[rollback] WARNING: parent checkout may not be clean after aborting merge`;
+			} else if (buildCommand) {
+				const b = await runBuildCheck(gitRoot, buildCommand, signal);
+				build = { success: b.success, aborted: b.aborted };
+				if (!b.success) {
+					// Roll back the merge and remove any generated (untracked) build output.
+					if (!(await rollbackTo(preSha)))
+						results[i].stderr += `\n[rollback] WARNING: parent checkout may not be clean after rollback`;
+					if (!b.aborted)
+						results[i].stderr += `\n[build] failed after merge (rolled back):\n${b.output.slice(-2000)}`;
+				} else if (!(await rollbackTo("HEAD"))) {
+					// Build passed: keep the merge commit but discard build artifacts.
+					results[i].stderr += `\n[build] WARNING: parent checkout not clean after build; later merges may be affected`;
+				}
 			}
-			// Build passed: keep the merge commit but discard any tracked/untracked
-			// build artifacts so the parent tree stays clean for the next merge.
-			if (!(await rollbackTo("HEAD")))
-				results[i].stderr += `\n[build] WARNING: parent checkout not clean after build; later merges may be affected`;
 		}
-		outcomes[i] = "merged";
+
+		outcomes[i] = classifyAfterMerge({ mergeStatus: merge.status, abortedAfterMerge, build });
 	}
 
 	// Cleanup per policy and annotate each result with the real disposition.
 	const removed: boolean[] = new Array(tasks.length).fill(false);
 	for (let i = 0; i < tasks.length; i++) {
 		const wt = worktrees[i];
-		const succeeded = outcomes[i] === "merged" || outcomes[i] === "no-changes";
-		const remove = cleanup === "always" || (cleanup === "on-success" && succeeded);
-		if (remove) {
+		if (shouldRemoveWorktree(outcomes[i], cleanup)) {
 			const wtRemoved = await removeWorktree(gitRoot, wt.worktreePath);
 			const branchRemoved = await deleteBranch(gitRoot, wt.branch);
 			if (wtRemoved && branchRemoved) {
@@ -784,10 +769,8 @@ async function runIsolatedParallel(opts: {
 
 	const mergedCount = outcomes.filter((o) => o === "merged").length;
 	const noChangeCount = outcomes.filter((o) => o === "no-changes").length;
-	const failedCount = outcomes.filter((o) => o !== "merged" && o !== "no-changes").length;
-	const preservedFailures = outcomes.filter(
-		(o, i) => !removed[i] && o !== "merged" && o !== "no-changes",
-	).length;
+	const failedCount = outcomes.filter((o) => !isSuccessOutcome(o)).length;
+	const preservedFailures = outcomes.filter((o, i) => !removed[i] && !isSuccessOutcome(o)).length;
 	const abortedAny = outcomes.some((o) => o === "aborted");
 
 	const summaries = results.map((r, i) => {
