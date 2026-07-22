@@ -12,7 +12,6 @@ import {
   type ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getGitHubCopilotBaseUrl } from "@earendil-works/pi-ai/oauth";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
@@ -53,6 +52,11 @@ interface PersistedSelection {
 interface SessionModel {
   provider: string;
   modelId: string;
+}
+
+interface CopilotConnection {
+  apiKey: string;
+  baseUrl: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,6 +114,25 @@ async function clearPersistedSelection(): Promise<void> {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function resolveCopilotConnection(
+  ctx: ExtensionContext
+): Promise<CopilotConnection | undefined> {
+  // Resolved provider auth includes Copilot's exchanged bearer token and the
+  // account-specific endpoint (including GitHub Enterprise deployments).
+  const result = await ctx.modelRegistry.getProviderAuth(PROVIDER);
+  const apiKey = result?.auth.apiKey;
+  if (!apiKey) return undefined;
+
+  const baseUrl =
+    result.auth.baseUrl ??
+    ctx.modelRegistry.getProvider(PROVIDER)?.baseUrl;
+  if (!baseUrl) {
+    throw new Error(`No base URL configured for ${PROVIDER}`);
+  }
+
+  return { apiKey, baseUrl: baseUrl.replace(/\/+$/, "") };
 }
 
 function hasExplicitModelCliArgument(): boolean {
@@ -314,10 +337,9 @@ export default function (pi: ExtensionAPI) {
 
       let model = ctx.modelRegistry.find(saved.provider, saved.modelId);
       if (!model && saved.apiEntry && isSelectableCopilotModel(saved.apiEntry)) {
-        const apiKey = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER);
-        if (apiKey) {
-          const baseUrl = getGitHubCopilotBaseUrl(apiKey);
-          registerDynamicModel(pi, ctx, saved.apiEntry, baseUrl);
+        const connection = await resolveCopilotConnection(ctx);
+        if (connection) {
+          registerDynamicModel(pi, ctx, saved.apiEntry, connection.baseUrl);
           model = ctx.modelRegistry.find(saved.provider, saved.modelId);
         }
       }
@@ -394,13 +416,22 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const apiKey = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER);
-      if (!apiKey) {
+      let connection: CopilotConnection | undefined;
+      try {
+        connection = await resolveCopilotConnection(ctx);
+      } catch (error) {
+        ctx.ui.notify(
+          `Could not resolve ${PROVIDER} authentication: ${formatError(error)}`,
+          "error"
+        );
+        return;
+      }
+      if (!connection) {
         ctx.ui.notify(`No API key for ${PROVIDER}. Run /login first.`, "error");
         return;
       }
 
-      const baseUrl = getGitHubCopilotBaseUrl(apiKey);
+      const { apiKey, baseUrl } = connection;
       ctx.ui.setStatus("dynamic-model", "Fetching Copilot models…");
 
       let models: CopilotModelEntry[];
