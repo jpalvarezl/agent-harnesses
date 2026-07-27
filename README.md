@@ -100,6 +100,48 @@ Share just the `work/` directory (skills + prompts; there are no work-only exten
 /skill:release-notes update changelog and readme from PR https://github.com/Azure/azure-sdk-for-java/pull/12345
 ```
 
+### `github`
+Interact with GitHub via the `gh` CLI — issues, PRs, CI runs, and advanced `gh api` queries.
+```text
+/skill:github show the failing checks on PR 123
+```
+
+### `work-resource-index`
+Look up **which** work-resources entry (resource + flavor + env vars) is known to run a given feature or sample set live, before loading secrets with `work-resources`.
+```text
+/skill:work-resource-index which resource runs the hosted-agents samples?
+```
+
+### `dedup-openai`
+Suppress generated Java classes that duplicate `openai-java` models (via `@@alternateType` in TypeSpec + manual serialization bridges). Run after `dup-classes` identifies actionable duplicates.
+```text
+/skill:dedup-openai suppress the duplicates dup-classes found
+```
+
+### `missing-protocol-methods`
+Add missing Azure SDK for Java protocol-method overloads (WithResponse taking `RequestOptions`, returning `Response<BinaryData>`) for existing convenience methods.
+```text
+/skill:missing-protocol-methods add protocol overloads for the Foo client
+```
+
+### `tsp-naming-collision`
+Fix Java codegen parameter names ending in a numeric suffix (e.g. `createAgentRequest1`) caused by TypeSpec model-name collisions.
+```text
+/skill:tsp-naming-collision fix the Request1 parameter names in ./sdk/foo
+```
+
+### `tsp-type-override`
+Override a TypeSpec field type with a Java-native type (e.g. `OffsetDateTime`) via `@@alternateType` in `client.java.tsp`.
+```text
+/skill:tsp-type-override map Model.created_at to OffsetDateTime
+```
+
+### `union-type-wrappers`
+Add typed getters/setters over `BinaryData` properties that represent TypeSpec union types in generated Java models.
+```text
+/skill:union-type-wrappers add typed accessors for union fields under ./src/main/java
+```
+
 ## Work Prompt Templates
 
 ### Full workflow
@@ -115,6 +157,21 @@ Share just the `work/` directory (skills + prompts; there are no work-only exten
 ### Release notes from a PR
 ```text
 /release-notes https://github.com/Azure/azure-sdk-for-java/pull/12345
+```
+
+### Fix TypeSpec naming collisions
+```text
+/tsp-naming-collision ./sdk/foo
+```
+
+### Override a TypeSpec field type
+```text
+/tsp-type-override
+```
+
+### Union-type wrappers
+```text
+/union-type-wrappers
 ```
 
 ## Personal Skills
@@ -162,63 +219,6 @@ Dynamic GitHub Copilot model selector. Registers `/model_cur`, which queries you
 ```text
 /model_cur
 ```
-
-## Using these skills with GitHub Copilot CLI
-
-The skills in this repo were originally written for **pi**, but the `SKILL.md`
-format is the same one [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli)
-uses, so they work there too with one caveat: Copilot CLI does **not** currently
-support a configurable "skills directory" list. It only auto-discovers skills
-from a single fixed location:
-
-```
-~/.copilot/skills/<skill-name>/SKILL.md
-```
-
-To expose this repo's skills there without copying files, symlink each skill
-folder into `~/.copilot/skills/`. Because these are links into the repo, a
-`git pull` (or a local `SKILL.md` edit) is picked up on Copilot CLI's next
-session — no copying or re-installing.
-
-### macOS / Linux
-
-```bash
-# from the repo root — link every skill (work + personal)
-mkdir -p ~/.copilot/skills
-for d in work/skills/*/ personal/skills/*/; do
-  ln -sfn "$PWD/$d" ~/.copilot/skills/"$(basename "$d")"
-done
-```
-
-### Windows (PowerShell)
-
-Use directory **junctions** (no admin or Developer Mode required):
-
-```powershell
-# from the repo root
-New-Item -ItemType Directory -Force ~/.copilot/skills | Out-Null
-Get-ChildItem work/skills, personal/skills -Directory | ForEach-Object {
-  New-Item -ItemType Junction -Force -Path "$HOME/.copilot/skills/$($_.Name)" -Target $_.FullName
-}
-```
-
-### Verifying
-
-Restart Copilot CLI and run:
-
-```text
-/skills      # list available skills
-/env         # show loaded skills, instructions, MCP servers, etc.
-```
-
-### Caveats / scope
-
-- Only **skills** are wired up this way. Copilot CLI has no equivalent for
-  pi's `prompts` or `extensions` arrays; those remain pi-only.
-- Project-local skills directories aren't supported by Copilot CLI. The links
-  in `~/.copilot/skills/` apply globally to every Copilot CLI session.
-- Repo-specific guidance is still picked up via `AGENTS.md` (in the git root
-  and cwd) and `.github/instructions/**/*.instructions.md`.
 
 ## Notes
 - Skills can also be triggered implicitly by natural language requests.
