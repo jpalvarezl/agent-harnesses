@@ -26,9 +26,9 @@ Add both paths in your global settings (`~/.pi/agent/settings.json`):
     "~/path/to/agent-harnesses/work/prompts"
   ],
   "extensions": [
-    "~/path/to/agent-harnesses/work/extensions/my-extension",
-    "~/path/to/agent-harnesses/personal/extensions/dispatch",
-    "~/path/to/agent-harnesses/personal/extensions/peer-agents"
+    "~/path/to/agent-harnesses/personal/extensions/model-dynamics",
+    "~/path/to/agent-harnesses/personal/extensions/peer-agents",
+    "~/path/to/agent-harnesses/personal/extensions/subagent"
   ],
   "enableSkillCommands": true
 }
@@ -36,13 +36,12 @@ Add both paths in your global settings (`~/.pi/agent/settings.json`):
 
 ### For colleagues (work only)
 
-Share just the `work/` directory:
+Share just the `work/` directory (skills + prompts; there are no work-only extensions today):
 
 ```json
 {
   "skills": ["~/path/to/agent-harnesses/work/skills"],
   "prompts": ["~/path/to/agent-harnesses/work/prompts"],
-  "extensions": ["~/path/to/agent-harnesses/work/extensions/my-extension"],
   "enableSkillCommands": true
 }
 ```
@@ -128,14 +127,18 @@ Interactive setup for a developer shell environment (fish, starship, nvm, lsd, b
 
 ## Personal Extensions
 
-### `dispatch`
-Scan, dispatch, and merge parallel agent work via git worktrees. Registers commands: `/scan`, `/dispatch`, `/sessions`, `/broadcast`.
+### `subagent`
+Delegate work to specialized subagents with **isolated context windows** (each runs as a separate `pi` process). Registers the model-callable `subagent` tool and `/subagent-model`, and ships agent definitions (`scout`, `planner`, `reviewer`, `worker`) plus workflow prompts (`/implement`, `/scout-and-plan`, `/implement-and-review`).
+
+- **Modes:** single `{agent, task}`, parallel `{tasks: [...]}`, chain `{chain: [...]}` (sequential; `{previous}` is replaced with the prior step's output).
+- **Models:** children inherit the active session model by default; set a cheaper session default with `/subagent-model`, or pass a per-task `model`.
+- **Parallel writes:** pass `isolation: "git-worktree"` so each task runs in its own worktree/branch and the harness merges them back (clean-merge-only; conflicts preserved for manual resolution; optional `buildCommand` gate; `cleanup` = `on-success` | `never` | `always`). Requires a clean git tree.
+
+Full reference: [`personal/extensions/subagent/README.md`](personal/extensions/subagent/README.md).
+
 ```text
-/scan src -d            # scan for markers and auto-dispatch
-/dispatch TODO-ab12cd34 # dispatch a specific todo
-/dispatch status        # show active worktrees
-/sessions               # show live sessions and broadcasts
-/broadcast <message>    # broadcast to other sessions
+Run 2 scouts in parallel: one to find the models, one to find the providers.
+/implement add Redis caching to the session store
 ```
 
 ### `peer-agents`
@@ -152,6 +155,12 @@ The tools instruct the main agent to run `code_review` after substantive changes
 Bounce this caching design off the rubber duck agent.
 Review my local diff against origin/main before creating the PR.
 Ask two rubber duck agents in parallel to evaluate the API and concurrency designs.
+```
+
+### `model-dynamics`
+Dynamic GitHub Copilot model selector. Registers `/model_cur`, which queries your authenticated Copilot account for the models currently available and lets you pick and persist one — useful when Copilot exposes a model before it appears in pi's generated model catalog.
+```text
+/model_cur
 ```
 
 ## Using these skills with GitHub Copilot CLI
