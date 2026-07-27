@@ -109,7 +109,7 @@ Because each subagent is a separate `pi` process, parallel write-capable agents 
   "isolation": "git-worktree",
   "mergeStrategy": "clean-only",   // only supported policy for now
   "buildCommand": "npm run build", // optional: run after each clean merge; failure rolls back that merge
-  "cleanup": "on-success"          // on-success (default) | never | always
+  "cleanup": "on-success"          // on-success (default) | never
 }
 ```
 
@@ -123,7 +123,7 @@ Mechanics (all harness-owned, not prompt instructions):
    - **`buildCommand` fails** after a clean merge → that merge is **rolled back** (`git reset --hard` + `git clean -fd` to drop generated files) and the branch preserved.
    - **Commit fails** (e.g. missing git identity) or the **agent fails** → not merged, worktree/branch **preserved** (never silently discarded).
    - **Abort (Ctrl+C)** after agents finish → stops before further merges; already-merged work stays, unprocessed worktrees are preserved.
-6. Cleanup per `cleanup`: `on-success` removes merged/no-change worktrees and preserves failures; `never` keeps all; `always` removes all.
+6. Cleanup per `cleanup`: `on-success` removes merged/no-change worktrees and preserves failures; `never` keeps all. **Failed tasks are always preserved** so their work stays recoverable.
 
 > **`buildCommand` runs an arbitrary shell command** in the parent checkout. It is convenient but is real code execution — only pass build commands you trust. (In the default coding-agent context the parent already has a bash tool, so this is not a new capability; in locked-down deployments, treat it as one.)
 

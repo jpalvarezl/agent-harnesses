@@ -17,7 +17,7 @@ export type IsolationOutcome =
 	| "commit-failed" // committing the worktree failed (work preserved, never discarded)
 	| "aborted"; // user canceled before/while integrating this task
 
-export type CleanupPolicy = "on-success" | "never" | "always";
+export type CleanupPolicy = "on-success" | "never";
 
 /** An outcome that leaves nothing to recover, so its worktree is safe to remove by default. */
 export function isSuccessOutcome(outcome: IsolationOutcome): boolean {
@@ -26,16 +26,16 @@ export function isSuccessOutcome(outcome: IsolationOutcome): boolean {
 
 /**
  * Whether a task's worktree/branch should be removed, given the cleanup policy.
+ * Failure outcomes are NEVER removed (their work — committed on a branch, or
+ * uncommitted in the worktree for commit-failed — must be recoverable).
  *
  *   policy       | success | failure
  *   -------------|---------|--------
  *   on-success   | remove  | keep
  *   never        | keep    | keep
- *   always       | remove  | remove
  */
 export function shouldRemoveWorktree(outcome: IsolationOutcome, cleanup: CleanupPolicy): boolean {
 	if (cleanup === "never") return false;
-	if (cleanup === "always") return true;
 	return isSuccessOutcome(outcome); // on-success
 }
 

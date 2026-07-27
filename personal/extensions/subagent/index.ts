@@ -560,7 +560,7 @@ async function runIsolatedParallel(opts: {
 	onUpdate: OnUpdateCallback | undefined;
 	makeDetails: (results: SingleResult[]) => SubagentDetails;
 	buildCommand?: string;
-	cleanup: "on-success" | "never" | "always";
+	cleanup: "on-success" | "never";
 }): Promise<AgentToolResult<SubagentDetails>> {
 	const { cwd, agents, tasks, modelSelect, signal, onUpdate, makeDetails, buildCommand, cleanup } = opts;
 
@@ -856,9 +856,9 @@ const SubagentParams = Type.Object({
 		}),
 	),
 	cleanup: Type.Optional(
-		StringEnum(["on-success", "never", "always"] as const, {
+		StringEnum(["on-success", "never"] as const, {
 			description:
-				"Worktree cleanup for git-worktree isolation. 'on-success' (default) removes merged worktrees and preserves failures for inspection; 'never' keeps all; 'always' removes all.",
+				"Worktree cleanup for git-worktree isolation. 'on-success' (default) removes merged/no-change worktrees and preserves failures for inspection; 'never' keeps all. Failed tasks are always preserved so their work is recoverable.",
 			default: "on-success",
 		}),
 	),
@@ -875,7 +875,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("subagent-model", {
-		description: "Set the default model subagents use this session (empty arg clears; picker if no arg)",
+		description: "Set the session default model for subagents (no arg opens a picker; choose 'inherit' to clear; or pass a model spec)",
 		handler: async (args, ctx) => {
 			const available = ctx.modelRegistry.getAvailable() as ModelRef[];
 			const INHERIT = "(inherit active session model)";

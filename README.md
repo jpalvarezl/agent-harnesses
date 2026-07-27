@@ -53,7 +53,7 @@ Share just the `work/` directory (skills + prompts; there are no work-only exten
 
 > **Note:** Extensions are either a single `.ts` file or a directory containing an `index.ts` entry point. Each extension path must be listed individually in the `"extensions"` array. **New extensions require a full restart of pi** — `/reload` may not detect them.
 
-> **Usage guidance is built into the tools.** These extensions ship their own `promptSnippet`/`promptGuidelines`, so once an extension is registered, pi injects its when/how-to-use guidance into the system prompt automatically — no per-machine `AGENTS.md` edits needed.
+> **Usage guidance is built into the model-callable tools.** The `subagent` and `peer-agents` tools ship their own `promptSnippet`/`promptGuidelines`, so once registered, pi injects their when/how-to-use guidance into the system prompt automatically — no per-machine `AGENTS.md` edits needed.
 
 ## Work Skills
 
@@ -182,6 +182,18 @@ Interactive setup for a developer shell environment (fish, starship, nvm, lsd, b
 /skill:dev-env-setup set up my dev environment
 ```
 
+### `ios-device-deploy`
+Build, install, and launch iOS/iPadOS apps on a physical device from the CLI (`xcodebuild` + `devicectl`) — no Xcode GUI.
+```text
+/skill:ios-device-deploy deploy this app to my iPhone
+```
+
+### `swift-development`
+Swift 6 development guidelines (strict concurrency, actor isolation, Sendable, async/await, SwiftUI, Swift Testing). Use when writing or reviewing Swift.
+```text
+/skill:swift-development review this file for Swift 6 concurrency issues
+```
+
 ## Personal Extensions
 
 ### `subagent`
@@ -189,9 +201,11 @@ Delegate work to specialized subagents with **isolated context windows** (each r
 
 - **Modes:** single `{agent, task}`, parallel `{tasks: [...]}`, chain `{chain: [...]}` (sequential; `{previous}` is replaced with the prior step's output).
 - **Models:** children inherit the active session model by default; set a cheaper session default with `/subagent-model`, or pass a per-task `model`.
-- **Parallel writes:** pass `isolation: "git-worktree"` so each task runs in its own worktree/branch and the harness merges them back (clean-merge-only; conflicts preserved for manual resolution; optional `buildCommand` gate; `cleanup` = `on-success` | `never` | `always`). Requires a clean git tree.
+- **Parallel writes:** pass `isolation: "git-worktree"` so each task runs in its own worktree/branch and the harness merges them back (clean-merge-only; conflicts preserved for manual resolution; optional `buildCommand` gate; `cleanup` = `on-success` | `never`). Requires a clean git tree.
 
 Full reference: [`personal/extensions/subagent/README.md`](personal/extensions/subagent/README.md).
+
+> **Extra install step:** the bundled agents (`scout`/`planner`/`reviewer`/`worker`) and workflow prompts (`/implement`, `/scout-and-plan`, `/implement-and-review`) must be symlinked into pi's `~/.pi/agent/agents` and `~/.pi/agent/prompts`. Registering the extension alone gives you the `subagent` tool but not those — see the extension README's **Installation** section.
 
 ```text
 Run 2 scouts in parallel: one to find the models, one to find the providers.

@@ -25,9 +25,6 @@ test("shouldRemoveWorktree truth table", () => {
 	// never: keep everything
 	assert.equal(shouldRemoveWorktree("merged", "never"), false);
 	assert.equal(shouldRemoveWorktree("conflict", "never"), false);
-	// always: remove everything
-	assert.equal(shouldRemoveWorktree("merged", "always"), true);
-	assert.equal(shouldRemoveWorktree("conflict", "always"), true);
 });
 
 test("classifyBeforeMerge precedence: aborted > agent-failed > commit-failed > no-changes > proceed", () => {
