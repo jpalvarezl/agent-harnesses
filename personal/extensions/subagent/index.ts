@@ -925,6 +925,14 @@ export default function (pi: ExtensionAPI) {
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
 		].join(" "),
+		promptSnippet: "Delegate work to isolated child agents in single, parallel, or chain mode.",
+		promptGuidelines: [
+			"Use subagent for independent recon/review or genuinely separable subtasks with isolated context; avoid it for trivial single-step work.",
+			"Use subagent tasks for parallel independent work, and subagent chain when a later step needs an earlier step's output via the {previous} placeholder.",
+			'Use subagent with isolation: "git-worktree" whenever parallel tasks may modify files; it requires a clean git tree, merges clean-only, and preserves conflicts for manual resolution (never auto-resolved).',
+			"Use subagent parallel mode without isolation only for read-only agents (scout/planner/reviewer); serialize write-heavy work with chain or isolate worker tasks.",
+			"Use subagent children with the inherited session model by default; prefer /subagent-model or a per-task model override rather than hard-coding provider-specific model IDs.",
+		],
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {

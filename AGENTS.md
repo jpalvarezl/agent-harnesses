@@ -10,7 +10,7 @@ This repo is split into two top-level directories:
 - Each extension is either a single `.ts` file or a directory with an `index.ts` entry point.
 - Extensions must be registered in `~/.pi/agent/settings.json` under the `"extensions"` array (see README for setup).
 - **New extensions require a full restart of pi** — `/reload` may not detect newly added extensions.
-- **When installing extensions on a machine, also sync the global agent guidance:** inject the managed block from `personal/extensions/AGENTS.snippet.md` into `~/.pi/agent/AGENTS.md` (create it if missing; replace between the `agent-harnesses:pi-extensions` markers if already present). This is a targeted markdown edit, not a script. See the README "Global agent guidance" section.
+- Ship usage guidance **with the extension** via `registerTool`'s `promptSnippet`/`promptGuidelines` (pi injects it into the system prompt when the tool is active) rather than editing the global `~/.pi/agent/AGENTS.md`. Keep guideline bullets compact and name the tool in each one.
 
 ## General
 - Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github, union-type-wrappers).

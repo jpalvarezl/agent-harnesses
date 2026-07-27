@@ -54,17 +54,7 @@ Share just the `work/` directory:
 
 > **Note:** Extensions are either a single `.ts` file or a directory containing an `index.ts` entry point. Each extension path must be listed individually in the `"extensions"` array. **New extensions require a full restart of pi** — `/reload` may not detect them.
 
-### Global agent guidance (usage instructions for the extensions)
-
-Pi loads `~/.pi/agent/AGENTS.md` into **every** session on the machine (all projects). To make agents aware of *how* to use these extensions (not just that the tools exist), inject the managed block from [`personal/extensions/AGENTS.snippet.md`](personal/extensions/AGENTS.snippet.md) into `~/.pi/agent/AGENTS.md`.
-
-This is a plain **targeted markdown edit — no script**. On a new machine (or when the snippet changes), do this:
-
-1. Open `~/.pi/agent/AGENTS.md` (create it if missing).
-2. If the `<!-- BEGIN agent-harnesses:pi-extensions -->` … `<!-- END agent-harnesses:pi-extensions -->` markers are already present, **replace everything between them** with the current block. Otherwise **append** the whole block (markers included).
-3. Restart pi.
-
-The markers keep updates idempotent — an agent (or you) can re-sync the block from the snippet with a single between-the-markers replacement.
+> **Usage guidance is built into the tools.** These extensions ship their own `promptSnippet`/`promptGuidelines`, so once an extension is registered, pi injects its when/how-to-use guidance into the system prompt automatically — no per-machine `AGENTS.md` edits needed.
 
 ## Work Skills
 
