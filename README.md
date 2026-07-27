@@ -59,16 +59,16 @@ Share just the `work/` directory:
 ## Work Skills
 
 ### Dependencies
-- `wr-load` requires the **work-resources** CLI: https://github.com/jpalvarezl/work-resources
+- `work-resources` requires the **work-resources** CLI: https://github.com/jpalvarezl/work-resources
 - `codegen` requires `tsp-client` on PATH (npm package: https://www.npmjs.com/package/@azure-tools/typespec-client-generator-cli?activeTab=readme).
 - `run-tests` requires Java + Maven (`mvn`) on PATH.
   - Recommended Java: Temurin JDK 21 (https://adoptium.net/en-GB/temurin/releases)
   - Maven install: https://maven.apache.org/install.html
 - `test-proxy` requires the `test-proxy` CLI on PATH (install: https://github.com/Azure/azure-sdk-tools/blob/main/tools/test-proxy/Azure.Sdk.Tools.TestProxy/README.md#installation-and-initial-run).
 
-### `wr-load`
+### `work-resources`
 ```text
-/skill:wr-load load secrets for resource myapi
+/skill:work-resources load secrets for resource myapi
 ```
 
 ### `codegen`
@@ -166,45 +166,41 @@ from a single fixed location:
 ~/.copilot/skills/<skill-name>/SKILL.md
 ```
 
-To expose this repo's skills there without copying files, we link each skill
-folder into `~/.copilot/skills/`. The provided scripts are idempotent and
-preserve any skills you already have installed under that directory.
-
-### Windows (PowerShell)
-
-```powershell
-# from the repo root
-pwsh ./scripts/install-copilot-cli-skills.ps1               # link everything
-pwsh ./scripts/install-copilot-cli-skills.ps1 -Work         # work skills only
-pwsh ./scripts/install-copilot-cli-skills.ps1 -Personal     # personal skills only
-pwsh ./scripts/install-copilot-cli-skills.ps1 -DryRun       # preview
-```
-
-The Windows script creates directory **junctions**, which don't require admin
-or Developer Mode.
+To expose this repo's skills there without copying files, symlink each skill
+folder into `~/.copilot/skills/`. Because these are links into the repo, a
+`git pull` (or a local `SKILL.md` edit) is picked up on Copilot CLI's next
+session — no copying or re-installing.
 
 ### macOS / Linux
 
 ```bash
+# from the repo root — link every skill (work + personal)
+mkdir -p ~/.copilot/skills
+for d in work/skills/*/ personal/skills/*/; do
+  ln -sfn "$PWD/$d" ~/.copilot/skills/"$(basename "$d")"
+done
+```
+
+### Windows (PowerShell)
+
+Use directory **junctions** (no admin or Developer Mode required):
+
+```powershell
 # from the repo root
-./scripts/install-copilot-cli-skills.sh                # link everything
-./scripts/install-copilot-cli-skills.sh --work         # work skills only
-./scripts/install-copilot-cli-skills.sh --personal     # personal skills only
-./scripts/install-copilot-cli-skills.sh --dry-run      # preview
+New-Item -ItemType Directory -Force ~/.copilot/skills | Out-Null
+Get-ChildItem work/skills, personal/skills -Directory | ForEach-Object {
+  New-Item -ItemType Junction -Force -Path "$HOME/.copilot/skills/$($_.Name)" -Target $_.FullName
+}
 ```
 
 ### Verifying
 
-After running the script, restart Copilot CLI and run:
+Restart Copilot CLI and run:
 
 ```text
 /skills      # list available skills
 /env         # show loaded skills, instructions, MCP servers, etc.
 ```
-
-Because the entries are links into this repo, a `git pull` (or local edit of
-any `SKILL.md`) is picked up by Copilot CLI on its next session — no copying
-or re-running the installer needed.
 
 ### Caveats / scope
 

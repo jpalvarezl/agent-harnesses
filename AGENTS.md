@@ -13,7 +13,7 @@ This repo is split into two top-level directories:
 - Ship usage guidance **with the extension** via `registerTool`'s `promptSnippet`/`promptGuidelines` (pi injects it into the system prompt when the tool is active) rather than editing the global `~/.pi/agent/AGENTS.md`. Keep guideline bullets compact and name the tool in each one.
 
 ## General
-- Prefer using skills for discrete tasks (codegen, wr-load, run-tests, search-m2, dup-classes, test-proxy, github, union-type-wrappers).
+- Prefer using skills for discrete tasks (codegen, work-resources, run-tests, search-m2, dup-classes, test-proxy, github, union-type-wrappers).
 - Ask clarifying questions when project/module, commit hash, or test mode is ambiguous.
 - Environment variables set via `wr-load` don't persist across tool calls; if you need them for a command, combine in a single bash call.
 
