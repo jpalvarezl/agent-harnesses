@@ -217,6 +217,8 @@ function validateCandidates(candidates: readonly ModelCandidate[]): void {
 
 		const thinkingLevels = new Set<ThinkingLevel>();
 		for (const variant of candidate.variants) {
+			if (!(THINKING_LEVELS as readonly string[]).includes(variant.thinkingLevel))
+				throw new Error(`Invalid thinking level ${String(variant.thinkingLevel)} for ${modelSpec(candidate)}`);
 			if (thinkingLevels.has(variant.thinkingLevel))
 				throw new Error(`Duplicate thinking level ${variant.thinkingLevel} for ${modelSpec(candidate)}`);
 			thinkingLevels.add(variant.thinkingLevel);
@@ -331,8 +333,11 @@ function compareRanked(left: RankedCandidate, right: RankedCandidate): number {
 	const leftKnown = left.dimensionScores.filter((score) => score.known).length;
 	const rightKnown = right.dimensionScores.filter((score) => score.known).length;
 	if (leftKnown !== rightKnown) return rightKnown - leftKnown;
-	const specDifference = modelSpec(left.model).localeCompare(modelSpec(right.model));
-	if (specDifference !== 0) return specDifference;
+	const leftSpec = modelSpec(left.model);
+	const rightSpec = modelSpec(right.model);
+	// Code-unit ordering is deterministic across host locales and operating systems.
+	if (leftSpec < rightSpec) return -1;
+	if (leftSpec > rightSpec) return 1;
 	return THINKING_LEVELS.indexOf(left.thinkingLevel) - THINKING_LEVELS.indexOf(right.thinkingLevel);
 }
 

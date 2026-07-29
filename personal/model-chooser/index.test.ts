@@ -364,6 +364,15 @@ test("alternatives are bounded and contain distinct models", () => {
 
 test("invalid or duplicate candidate metadata fails early", () => {
 	assert.throws(
+		() =>
+			selectModel([
+				candidate("bad-thinking", [variant("low", { quality: 1 })], {
+					variants: [{ thinkingLevel: "turbo" as "low", signals: { quality: signal(1) } }],
+				}),
+			]),
+		/Invalid thinking level turbo/,
+	);
+	assert.throws(
 		() => selectModel([candidate("bad", [variant("low", { quality: 1.1 })])]),
 		/Invalid quality value/,
 	);
