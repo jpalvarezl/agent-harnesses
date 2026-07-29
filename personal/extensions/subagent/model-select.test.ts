@@ -34,6 +34,20 @@ test("findAvailableModel handles case-insensitive canonical specs and slash-cont
 	assert.equal(findAvailableModel(withSlash, "openrouter/qwen/qwen-3")?.id, "qwen/qwen-3");
 });
 
+test("ambiguous task, session, or frontmatter models fail with canonical options", () => {
+	for (const input of [
+		{ taskModel: "claude-sonnet-4.5" },
+		{ sessionPin: "claude-sonnet-4.5" },
+		{ agentModel: "claude-sonnet-4.5" },
+	]) {
+		const result = resolveEffectiveModel({ ...input, current, available });
+		assert.equal(result.spec, undefined);
+		assert.match(result.error ?? "", /ambiguous/);
+		assert.match(result.error ?? "", /anthropic\/claude-sonnet-4\.5/);
+		assert.match(result.error ?? "", /github-copilot\/claude-sonnet-4\.5/);
+	}
+});
+
 test("task model wins over session pin, frontmatter, and inherited", () => {
 	const r = resolveEffectiveModel({
 		taskModel: "gpt-5.5",

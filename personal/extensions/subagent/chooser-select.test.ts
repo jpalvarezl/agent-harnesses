@@ -66,6 +66,30 @@ test("omitting chooser fields preserves the legacy selection exactly", () => {
 	});
 });
 
+test("chooser-enabled calls preserve ambiguous explicit-model failures", () => {
+	const duplicateCandidates = [
+		...candidates,
+		candidate("shared", 0.5, { provider: "one" }),
+		candidate("shared", 0.5, { provider: "two" }),
+	];
+	const duplicateAvailable = [
+		...available,
+		{ provider: "one", id: "shared" },
+		{ provider: "two", id: "shared" },
+	];
+	const resolved = resolveChooserModel({
+		taskModel: "shared",
+		current,
+		available: duplicateAvailable,
+		candidates: duplicateCandidates,
+		agentName: "worker",
+		policy: "cost",
+	});
+	assert.equal(resolved.spec, undefined);
+	assert.match(resolved.error ?? "", /ambiguous/);
+	assert.match(resolved.error ?? "", /one\/shared, two\/shared/);
+});
+
 test("quality pins the inherited model and selects its stronger thinking variant", () => {
 	const resolved = resolveChooserModel({
 		current,

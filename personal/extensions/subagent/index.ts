@@ -29,18 +29,25 @@ import {
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
-	OPTIMIZATION_POLICIES,
-	THINKING_LEVELS,
 	type ModelCandidate,
 	type OptimizationPolicy,
 	type ThinkingLevel,
 } from "../../model-chooser/index.ts";
 import { getFreshChildCatalog } from "../../model-chooser/child-catalog.ts";
+import {
+	TOOL_POLICY_VALUES,
+	TOOL_THINKING_VALUES,
+	normalizeToolModel,
+	normalizeToolPolicy,
+	normalizeToolThinking,
+	type ToolPolicy,
+	type ToolThinkingLevel,
+} from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
 import { resolveChooserModel, type ChooserResolvedModel } from "./chooser-select.ts";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import {
-	findAvailableModel,
+	resolveAvailableModel,
 	type ModelRef,
 	type ModelSelectContext,
 	modelSpec,
@@ -559,8 +566,8 @@ interface IsolationTask {
 	agent: string;
 	task: string;
 	model?: string;
-	policy?: OptimizationPolicy;
-	thinkingLevel?: ThinkingLevel;
+	policy?: ToolPolicy;
+	thinkingLevel?: ToolThinkingLevel;
 }
 
 function firstLine(text: string, max = 72): string {
@@ -700,9 +707,9 @@ async function runIsolatedParallel(opts: {
 				},
 				makeDetails,
 				modelSelect,
-				t.model,
-				t.policy,
-				t.thinkingLevel,
+				normalizeToolModel(t.model),
+				normalizeToolPolicy(t.policy),
+				normalizeToolThinking(t.thinkingLevel),
 			);
 			allResults[index] = result;
 			emit();
@@ -847,13 +854,15 @@ async function runIsolatedParallel(opts: {
 	};
 }
 
-const OptimizationPolicySchema = StringEnum(OPTIMIZATION_POLICIES, {
+const OptimizationPolicySchema = StringEnum(TOOL_POLICY_VALUES, {
 	description:
-		"Optional model optimization policy. auto uses the agent role; combinations jointly optimize quality, speed, and/or cost.",
+		"Model selection mode. legacy preserves normal inheritance; auto uses the agent role; other values optimize quality, speed, and/or cost.",
+	default: "legacy",
 });
 
-const ThinkingLevelSchema = StringEnum(THINKING_LEVELS, {
-	description: "Optional exact thinking level for the selected child model.",
+const ThinkingLevelSchema = StringEnum(TOOL_THINKING_VALUES, {
+	description: "Thinking selection. auto lets the chooser decide; other values require that exact level.",
+	default: "auto",
 });
 
 const TaskItem = Type.Object({
@@ -948,12 +957,19 @@ export default function (pi: ExtensionAPI) {
 					ctx.ui.notify("Subagents will inherit the active session model.", "info");
 					return;
 				}
-				const found = findAvailableModel(available, spec);
-				if (!found) {
+				const resolution = resolveAvailableModel(available, spec);
+				if (resolution.status === "ambiguous") {
+					ctx.ui.notify(
+						`Model "${spec}" is ambiguous. Use one of: ${resolution.matches.map(modelSpec).sort().join(", ")}`,
+						"error",
+					);
+					return;
+				}
+				if (resolution.status === "not-found") {
 					ctx.ui.notify(`Model "${spec}" is not available. Run /login or pick from the list.`, "error");
 					return;
 				}
-				subagentModelPin = modelSpec(found);
+				subagentModelPin = modelSpec(resolution.model);
 				ctx.ui.notify(`Subagents will use ${subagentModelPin} (this session).`, "info");
 			};
 
@@ -1005,10 +1021,14 @@ export default function (pi: ExtensionAPI) {
 
 			const availableModels = ctx.modelRegistry.getAvailable();
 			const chooserRequested =
-				params.policy !== undefined ||
-				params.thinkingLevel !== undefined ||
-				params.tasks?.some((item) => item.policy !== undefined || item.thinkingLevel !== undefined) ||
-				params.chain?.some((item) => item.policy !== undefined || item.thinkingLevel !== undefined) ||
+				normalizeToolPolicy(params.policy) !== undefined ||
+				normalizeToolThinking(params.thinkingLevel) !== undefined ||
+				params.tasks?.some(
+					(item) => normalizeToolPolicy(item.policy) !== undefined || normalizeToolThinking(item.thinkingLevel) !== undefined,
+				) ||
+				params.chain?.some(
+					(item) => normalizeToolPolicy(item.policy) !== undefined || normalizeToolThinking(item.thinkingLevel) !== undefined,
+				) ||
 				false;
 			const childCatalog = chooserRequested ? await getFreshChildCatalog() : undefined;
 			const modelSelect: RuntimeModelSelectContext = {
@@ -1122,9 +1142,9 @@ export default function (pi: ExtensionAPI) {
 						chainUpdate,
 						makeDetails("chain"),
 						modelSelect,
-						step.model,
-						step.policy,
-						step.thinkingLevel,
+						normalizeToolModel(step.model),
+						normalizeToolPolicy(step.policy),
+						normalizeToolThinking(step.thinkingLevel),
 					);
 					results.push(result);
 
@@ -1226,9 +1246,9 @@ export default function (pi: ExtensionAPI) {
 						},
 						makeDetails("parallel"),
 						modelSelect,
-						t.model,
-						t.policy,
-						t.thinkingLevel,
+						normalizeToolModel(t.model),
+						normalizeToolPolicy(t.policy),
+						normalizeToolThinking(t.thinkingLevel),
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -1272,9 +1292,9 @@ export default function (pi: ExtensionAPI) {
 					onUpdate,
 					makeDetails("single"),
 					modelSelect,
-					params.model,
-					params.policy,
-					params.thinkingLevel,
+					normalizeToolModel(params.model),
+					normalizeToolPolicy(params.policy),
+					normalizeToolThinking(params.thinkingLevel),
 				);
 				const isError = isFailedResult(result);
 				if (isError) {

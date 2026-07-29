@@ -5,13 +5,18 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
-  OPTIMIZATION_POLICIES,
-  THINKING_LEVELS,
   type OptimizationPolicy,
   type SelectionDecision,
   type ThinkingLevel,
 } from "../../model-chooser/index.ts";
 import { getFreshChildCatalog } from "../../model-chooser/child-catalog.ts";
+import {
+  TOOL_POLICY_VALUES,
+  TOOL_THINKING_VALUES,
+  normalizeToolModel,
+  normalizeToolPolicy,
+  normalizeToolThinking,
+} from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
 import { resolvePeerChoice, type PeerRole } from "./chooser-select.ts";
 import {
@@ -277,11 +282,13 @@ async function runPeer(
   }
 }
 
-const OptimizationPolicySchema = StringEnum(OPTIMIZATION_POLICIES, {
-  description: "Optional model policy across quality, speed, and cost. auto uses the peer role.",
+const OptimizationPolicySchema = StringEnum(TOOL_POLICY_VALUES, {
+  description: "Model selection mode. legacy preserves peer defaults; auto uses the peer role; other values optimize quality, speed, and/or cost.",
+  default: "legacy",
 });
-const ThinkingLevelSchema = StringEnum(THINKING_LEVELS, {
-  description: "Optional exact thinking level for the selected peer model.",
+const ThinkingLevelSchema = StringEnum(TOOL_THINKING_VALUES, {
+  description: "Thinking selection. auto lets the chooser decide; other values require that exact level.",
+  default: "auto",
 });
 
 export default function peerAgents(pi: ExtensionAPI) {
@@ -311,7 +318,11 @@ export default function peerAgents(pi: ExtensionAPI) {
       thinkingLevel: Type.Optional(ThinkingLevelSchema),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
-      const selectedPeer = await choosePeerModel(ctx, "rubber-duck", params);
+      const selectedPeer = await choosePeerModel(ctx, "rubber-duck", {
+        model: normalizeToolModel(params.model),
+        policy: normalizeToolPolicy(params.policy),
+        thinkingLevel: normalizeToolThinking(params.thinkingLevel),
+      });
       const { selection, thinkingLevel, decision } = selectedPeer;
       onUpdate?.({
         content: [{ type: "text", text: `Consulting ${selectionLabel(selection, decision)}…` }],
@@ -365,7 +376,11 @@ export default function peerAgents(pi: ExtensionAPI) {
     async execute(_id, params, signal, onUpdate, ctx) {
       onUpdate?.({ content: [{ type: "text", text: "Capturing local diff…" }], details: {} });
       const snapshot = await createReviewSnapshot(runGit, ctx.cwd, params.base, signal);
-      const selectedPeer = await choosePeerModel(ctx, "code-review", params);
+      const selectedPeer = await choosePeerModel(ctx, "code-review", {
+        model: normalizeToolModel(params.model),
+        policy: normalizeToolPolicy(params.policy),
+        thinkingLevel: normalizeToolThinking(params.thinkingLevel),
+      });
       const { selection, thinkingLevel, decision } = selectedPeer;
       onUpdate?.({
         content: [{ type: "text", text: `Reviewing with ${selectionLabel(selection, decision)}…` }],

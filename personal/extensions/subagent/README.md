@@ -135,14 +135,14 @@ Isolation applies to **parallel `tasks` mode only** (that is where races occur).
 
 ### Optimization policies
 
-Set `policy` to let the chooser select a model/thinking-level pair:
+Set `policy` to let the chooser select a model/thinking-level pair. The tool schema also accepts `legacy` (the compatibility default) to preserve normal model inheritance:
 
 - `auto` — resolve from the agent role (`scout` → `speed-cost`, `planner` → `quality-speed`, `worker` → `balanced`, `reviewer` → `quality`)
 - `quality`, `speed`, or `cost`
 - `quality-speed`, `quality-cost`, or `speed-cost` — joint objectives
 - `balanced` — jointly optimize all three
 
-Set `thinkingLevel` (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`) to require a particular supported level. Policies are opt-in: when both `policy` and `thinkingLevel` are omitted, subagents use the unchanged legacy path.
+Set `thinkingLevel` (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`) to require a particular supported level, or `auto` (the default) to let the chooser decide. Policies are opt-in: omitted/`legacy` policy plus omitted/`auto` thinking uses the unchanged legacy path. These sentinel values prevent strict tool callers from accidentally materializing `auto` policy or `off` thinking when optional fields are expanded.
 
 ```jsonc
 // Single: optimize automatically for the agent role

@@ -68,6 +68,13 @@ export function resolveChooserModel(opts: {
 
 	const role = agentRole(opts.agentName);
 	const { requested, resolved } = resolveOptimizationPolicy(opts.policy, role);
+	if (legacy.error) {
+		return {
+			...legacy,
+			requestedPolicy: requested,
+			resolvedPolicy: resolved,
+		};
+	}
 	const usesCost = policyDimensions(resolved).includes("cost");
 	let modelOverride: string | undefined;
 

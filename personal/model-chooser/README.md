@@ -63,4 +63,6 @@ Initial signals are deliberately limited:
 - Quality and speed use low-confidence thinking-effort priors to distinguish reasoning levels; they do not claim that one model family is intrinsically better or faster.
 - Higher thinking receives a quality prior and lower speed/cost priors.
 
-The subagent and peer-agent extensions expose optional `policy`, `thinkingLevel`, and exact `model` fields. Omitting all chooser fields preserves existing model selection and peer behavior. External metadata, benchmark quality, observed latency, user constraints, and shadow evaluation remain later phases.
+The subagent and peer-agent extensions expose `policy`, `thinkingLevel`, and exact `model` fields. Their strict-tool enums use sentinel-first defaults: `policy: "legacy"` preserves existing behavior and `thinkingLevel: "auto"` lets the chooser decide. This prevents strict callers that materialize optional fields from accidentally opting into the first optimization policy or forcing thinking off. The eight optimization policies remain `auto`, the three single dimensions, three two-way combinations, and `balanced`.
+
+External metadata, benchmark quality, observed latency, user constraints, and shadow evaluation remain later phases.
