@@ -7,6 +7,8 @@ import {
 	normalizeToolModel,
 	normalizeToolPolicy,
 	normalizeToolThinking,
+	resolveToolPolicy,
+	resolveToolThinking,
 } from "./tool-options.ts";
 
 test("tool enums put compatibility sentinels first", () => {
@@ -22,6 +24,15 @@ test("tool sentinels normalize to omitted chooser options", () => {
 	assert.equal(normalizeToolThinking(undefined), undefined);
 	assert.equal(normalizeToolThinking("auto"), undefined);
 	assert.equal(normalizeToolThinking("high"), "high");
+});
+
+test("item chooser values override call defaults and sentinels inherit", () => {
+	assert.equal(resolveToolPolicy("quality", "cost"), "quality");
+	assert.equal(resolveToolPolicy("legacy", "cost"), "cost");
+	assert.equal(resolveToolPolicy(undefined, "auto"), "auto");
+	assert.equal(resolveToolThinking("high", "low"), "high");
+	assert.equal(resolveToolThinking("auto", "low"), "low");
+	assert.equal(resolveToolThinking(undefined, "auto"), undefined);
 });
 
 test("empty strict-tool string placeholders normalize away", () => {

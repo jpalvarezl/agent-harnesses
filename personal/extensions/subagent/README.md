@@ -97,7 +97,7 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
 | Parallel | `{ tasks: [...] }` | Multiple agents run concurrently (max 8, 4 concurrent) |
 | Chain | `{ chain: [...] }` | Sequential with `{previous}` placeholder |
 
-All modes accept optional `model`, `policy`, and `thinkingLevel` fields (per call in single mode, per item in `tasks`/`chain`). Omitting `policy` and `thinkingLevel` preserves the legacy model-inheritance behavior.
+All modes accept optional `model`, `policy`, and `thinkingLevel` fields. In single mode they apply to that call. In `tasks`/`chain` mode, top-level `policy` and `thinkingLevel` act as defaults and each item may override them; exact `model` remains per item. Omitting chooser fields preserves the legacy model-inheritance behavior.
 
 ## Parallel Isolation (git worktrees)
 
@@ -148,10 +148,11 @@ Set `thinkingLevel` (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max
 // Single: optimize automatically for the agent role
 { "agent": "scout", "task": "Map the auth flow", "policy": "auto" }
 
-// Parallel: use a cheap scout and a quality-focused reviewer
+// Parallel: top-level policy is the default; the reviewer overrides it
 {
+  "policy": "speed-cost",
   "tasks": [
-    { "agent": "scout", "task": "Find relevant files", "policy": "speed-cost" },
+    { "agent": "scout", "task": "Find relevant files" },
     { "agent": "reviewer", "task": "Audit the design", "policy": "quality" }
   ]
 }

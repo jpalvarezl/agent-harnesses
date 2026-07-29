@@ -40,6 +40,8 @@ import {
 	normalizeToolModel,
 	normalizeToolPolicy,
 	normalizeToolThinking,
+	resolveToolPolicy,
+	resolveToolThinking,
 	type ToolPolicy,
 	type ToolThinkingLevel,
 } from "../../model-chooser/tool-options.ts";
@@ -613,6 +615,8 @@ async function runIsolatedParallel(opts: {
 	makeDetails: (results: SingleResult[]) => SubagentDetails;
 	buildCommand?: string;
 	cleanup: "on-success" | "never";
+	defaultPolicy?: ToolPolicy;
+	defaultThinkingLevel?: ToolThinkingLevel;
 }): Promise<AgentToolResult<SubagentDetails>> {
 	const { cwd, agents, tasks, modelSelect, signal, onUpdate, makeDetails, buildCommand, cleanup } = opts;
 
@@ -708,8 +712,8 @@ async function runIsolatedParallel(opts: {
 				makeDetails,
 				modelSelect,
 				normalizeToolModel(t.model),
-				normalizeToolPolicy(t.policy),
-				normalizeToolThinking(t.thinkingLevel),
+				resolveToolPolicy(t.policy, opts.defaultPolicy),
+				resolveToolThinking(t.thinkingLevel, opts.defaultThinkingLevel),
 			);
 			allResults[index] = result;
 			emit();
@@ -1143,8 +1147,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("chain"),
 						modelSelect,
 						normalizeToolModel(step.model),
-						normalizeToolPolicy(step.policy),
-						normalizeToolThinking(step.thinkingLevel),
+						resolveToolPolicy(step.policy, params.policy),
+						resolveToolThinking(step.thinkingLevel, params.thinkingLevel),
 					);
 					results.push(result);
 
@@ -1188,6 +1192,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails: makeDetails("parallel"),
 						buildCommand: params.buildCommand,
 						cleanup: params.cleanup ?? "on-success",
+						defaultPolicy: params.policy,
+						defaultThinkingLevel: params.thinkingLevel,
 					});
 				}
 
@@ -1247,8 +1253,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("parallel"),
 						modelSelect,
 						normalizeToolModel(t.model),
-						normalizeToolPolicy(t.policy),
-						normalizeToolThinking(t.thinkingLevel),
+						resolveToolPolicy(t.policy, params.policy),
+						resolveToolThinking(t.thinkingLevel, params.thinkingLevel),
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
