@@ -65,4 +65,16 @@ Initial signals are deliberately limited:
 
 The subagent and peer-agent extensions expose `policy`, `thinkingLevel`, and exact `model` fields. Their strict-tool enums use sentinel-first defaults: `policy: "legacy"` preserves existing behavior and `thinkingLevel: "auto"` lets the chooser decide. This prevents strict callers that materialize optional fields from accidentally opting into the first optimization policy or forcing thinking off. The eight optimization policies remain `auto`, the three single dimensions, three two-way combinations, and `balanced`.
 
-External metadata, benchmark quality, observed latency, user constraints, and shadow evaluation remain later phases.
+## models.dev enrichment
+
+Phase 3 adds a projected models.dev catalog with exact route matching, canonical vendor resolution, and provenance/freshness metadata. Pi remains authoritative for availability, capabilities, positive route prices, and child resolvability. models.dev can:
+
+- refine canonical vendor and source-specific model family/tier identity (including punctuation aliases and unique name+family aliases such as MAI), while preserving coarse `claude`/`gpt`/`gemini` families for peer-independence decisions;
+- supply an exact same-route list price only when Pi pricing is missing or all-zero;
+- never introduce a new selectable model or borrow another provider route's price.
+
+For subscription routes such as GitHub Copilot, that fallback price is explicitly a low-confidence list-price proxy. It may not match premium-request, AI-credit, or subscription economics and can therefore misrank `cost` until provider-specific billing metadata is available.
+
+The projected cache lives under `~/.pi/agent/cache/model-chooser/`, is loaded before chooser tools run, and is refreshed stale-while-revalidate outside tool execution. Refreshes use ETags, retain stale data on failures, use atomic writes, and honor `PI_OFFLINE`. Use `/model-metadata status` or `/model-metadata refresh` from the model-dynamics extension to inspect or refresh it.
+
+Benchmark quality, observed latency, user constraints/overrides, authenticated Copilot catalog identity, and shadow evaluation remain later slices.

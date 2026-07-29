@@ -18,6 +18,10 @@ import {
   normalizeToolThinking,
 } from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
+import {
+  getModelsDevMetadataSnapshot,
+  hydrateModelsDevMetadata,
+} from "../../model-chooser/models-dev-runtime.ts";
 import { resolvePeerChoice, type PeerRole } from "./chooser-select.ts";
 import {
   selectPeerModelWithFallback,
@@ -135,7 +139,7 @@ async function choosePeerModel(
     role,
     current: ctx.model,
     available,
-    candidates: adaptPiModels(available, childCatalog),
+    candidates: adaptPiModels(available, childCatalog, { modelsDev: getModelsDevMetadataSnapshot() }),
     model: options.model,
     policy: options.policy,
     thinkingLevel: options.thinkingLevel,
@@ -292,6 +296,10 @@ const ThinkingLevelSchema = StringEnum(TOOL_THINKING_VALUES, {
 });
 
 export default function peerAgents(pi: ExtensionAPI) {
+  pi.on("session_start", async () => {
+    await hydrateModelsDevMetadata();
+  });
+
   const timeoutMs = positiveIntegerFromEnv(process.env.PI_PEER_AGENT_TIMEOUT_MS, DEFAULT_PEER_TIMEOUT_MS);
   const maxConcurrency = positiveIntegerFromEnv(
     process.env.PI_PEER_AGENT_MAX_CONCURRENCY,

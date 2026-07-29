@@ -22,12 +22,25 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 export type SpawnResolvable = boolean | "unknown";
 
+export interface MetadataAttribution {
+	confidence: number;
+	provenance: SignalProvenance;
+}
+
 export interface ModelIdentity {
 	provider: string;
 	id: string;
 	name?: string;
+	/** Coarse lineage used for independence (for example claude, gpt, gemini). */
 	family?: string;
+	/** Source-specific model tier/family (for example claude-opus or gpt-mini). */
+	modelFamily?: string;
 	vendor?: string;
+	identityMetadata?: {
+		family?: MetadataAttribution;
+		modelFamily?: MetadataAttribution;
+		vendor?: MetadataAttribution;
+	};
 }
 
 export interface SignalProvenance {
@@ -35,6 +48,8 @@ export interface SignalProvenance {
 	source: string;
 	url?: string;
 	fetchedAt?: string;
+	freshness?: "fresh" | "stale";
+	detail?: string;
 }
 
 /**

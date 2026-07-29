@@ -46,6 +46,10 @@ import {
 	type ToolThinkingLevel,
 } from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
+import {
+	getModelsDevMetadataSnapshot,
+	hydrateModelsDevMetadata,
+} from "../../model-chooser/models-dev-runtime.ts";
 import { resolveChooserModel, type ChooserResolvedModel } from "./chooser-select.ts";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import {
@@ -433,6 +437,7 @@ async function runSingleAgent(
 				cwd: cwd ?? defaultCwd,
 				shell: false,
 				stdio: ["pipe", "pipe", "pipe"],
+				env: { ...process.env, PI_SUBAGENT_CHILD: "1" },
 			});
 			let buffer = "";
 			let closed = false;
@@ -945,8 +950,9 @@ export default function (pi: ExtensionAPI) {
 	// This closure variable is per extension instance, which pi rebinds per session.
 	let subagentModelPin: string | undefined;
 
-	pi.on("session_start", () => {
+	pi.on("session_start", async () => {
 		subagentModelPin = undefined;
+		await hydrateModelsDevMetadata();
 	});
 
 	pi.registerCommand("subagent-model", {
@@ -1040,7 +1046,7 @@ export default function (pi: ExtensionAPI) {
 				current: ctx.model as ModelRef | undefined,
 				sessionPin: subagentModelPin,
 				chooserCandidates: chooserRequested
-					? adaptPiModels(availableModels, childCatalog)
+					? adaptPiModels(availableModels, childCatalog, { modelsDev: getModelsDevMetadataSnapshot() })
 					: undefined,
 			};
 
