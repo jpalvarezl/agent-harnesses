@@ -4,9 +4,9 @@ Pure, deterministic selection primitives shared by the personal subagent and pee
 
 This directory is **not a Pi extension** and should not be added to `settings.json`. Runtime integrations will import it directly.
 
-## Phase 1 scope
+## Scope
 
-The core currently defines the contract and ranking behavior without changing any existing agent defaults:
+The core defines the contract and ranking behavior. Phase 2 adds an opt-in Pi adapter used by the subagent and peer-agent extensions while preserving their legacy behavior when chooser fields are omitted:
 
 - Optimization policies: `auto`, `quality`, `speed`, `cost`, `quality-speed`, `quality-cost`, `speed-cost`, and `balanced`.
 - Transparent role defaults for `auto`.
@@ -53,4 +53,14 @@ The repository currently runs TypeScript tests directly with Node 24:
 node --test personal/model-chooser/index.test.ts
 ```
 
-Later phases will add Pi model adapters, subprocess resolvability checks against a fresh `ModelRuntime`, extension integration, cached external metadata, and shadow evaluation.
+## Pi adapter and Phase 2 integration
+
+`pi-adapter.ts` converts Pi's authenticated catalog into candidates, derives supported thinking variants, infers broad family/vendor identities, and compares parent models with a memoized fresh child `ModelRuntime` catalog. Chooser-enabled child calls require confirmed child resolvability; unknown or runtime-only entries fail closed. The extension-free catalog exactly matches peer children (`--no-extensions`) and is intentionally conservative for subagent children that may load provider extensions.
+
+Initial signals are deliberately limited:
+
+- Cost uses normalized positive Pi catalog input + output rates. All-zero/default pricing is unknown, not free.
+- Quality and speed use low-confidence thinking-effort priors to distinguish reasoning levels; they do not claim that one model family is intrinsically better or faster.
+- Higher thinking receives a quality prior and lower speed/cost priors.
+
+The subagent and peer-agent extensions expose optional `policy`, `thinkingLevel`, and exact `model` fields. Omitting all chooser fields preserves existing model selection and peer behavior. External metadata, benchmark quality, observed latency, user constraints, and shadow evaluation remain later phases.

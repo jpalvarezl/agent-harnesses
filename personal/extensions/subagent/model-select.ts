@@ -6,6 +6,8 @@
  * Invalid candidates are skipped (never fatal) and reported via `note`.
  */
 
+import { resolveModelSpec } from "../../model-chooser/index.ts";
+
 export interface ModelRef {
 	id: string;
 	provider: string;
@@ -23,16 +25,10 @@ export function modelSpec(m: ModelRef): string {
 	return `${m.provider}/${m.id}`;
 }
 
-/** Resolve a "provider/id" or bare "id" spec against the authenticated models. */
+/** Resolve a canonical provider/id or an unambiguous bare id. */
 export function findAvailableModel(available: ModelRef[], spec: string): ModelRef | undefined {
-	const slash = spec.indexOf("/");
-	if (slash > 0) {
-		const provider = spec.slice(0, slash);
-		const id = spec.slice(slash + 1);
-		const exact = available.find((m) => m.provider === provider && m.id === id);
-		if (exact) return exact;
-	}
-	return available.find((m) => m.id === spec);
+	const resolution = resolveModelSpec(available, spec);
+	return resolution.status === "found" ? resolution.model : undefined;
 }
 
 export interface ResolvedModel {

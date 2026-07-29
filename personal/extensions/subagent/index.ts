@@ -28,6 +28,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import {
+	OPTIMIZATION_POLICIES,
+	THINKING_LEVELS,
+	type ModelCandidate,
+	type OptimizationPolicy,
+	type ThinkingLevel,
+} from "../../model-chooser/index.ts";
+import { getFreshChildCatalog } from "../../model-chooser/child-catalog.ts";
+import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
+import { resolveChooserModel, type ChooserResolvedModel } from "./chooser-select.ts";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import {
 	findAvailableModel,
@@ -295,6 +305,10 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
+interface RuntimeModelSelectContext extends ModelSelectContext {
+	chooserCandidates?: ModelCandidate[];
+}
+
 async function runSingleAgent(
 	defaultCwd: string,
 	agents: AgentConfig[],
@@ -305,8 +319,10 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
-	modelSelect: ModelSelectContext,
+	modelSelect: RuntimeModelSelectContext,
 	taskModel: string | undefined,
+	taskPolicy: OptimizationPolicy | undefined,
+	taskThinkingLevel: ThinkingLevel | undefined,
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 
@@ -324,16 +340,43 @@ async function runSingleAgent(
 		};
 	}
 
-	const resolvedModel = resolveEffectiveModel({
-		taskModel,
-		sessionPin: modelSelect.sessionPin,
-		agentModel: agent.model,
-		current: modelSelect.current,
-		available: modelSelect.available,
-	});
+	const resolvedModel: ChooserResolvedModel = modelSelect.chooserCandidates && (taskPolicy !== undefined || taskThinkingLevel !== undefined)
+		? resolveChooserModel({
+				taskModel,
+				sessionPin: modelSelect.sessionPin,
+				agentModel: agent.model,
+				current: modelSelect.current,
+				available: modelSelect.available,
+				candidates: modelSelect.chooserCandidates,
+				agentName,
+				policy: taskPolicy,
+				thinkingLevel: taskThinkingLevel,
+			})
+		: resolveEffectiveModel({
+				taskModel,
+				sessionPin: modelSelect.sessionPin,
+				agentModel: agent.model,
+				current: modelSelect.current,
+				available: modelSelect.available,
+			});
+
+	if (resolvedModel.error) {
+		return {
+			agent: agentName,
+			agentSource: agent.source,
+			task,
+			exitCode: 1,
+			messages: [],
+			stderr: `Model chooser: ${resolvedModel.error}`,
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			modelNote: resolvedModel.note,
+			step,
+		};
+	}
 
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
 	if (resolvedModel.spec) args.push("--model", resolvedModel.spec);
+	if (resolvedModel.thinkingLevel) args.push("--thinking", resolvedModel.thinkingLevel);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
@@ -516,6 +559,8 @@ interface IsolationTask {
 	agent: string;
 	task: string;
 	model?: string;
+	policy?: OptimizationPolicy;
+	thinkingLevel?: ThinkingLevel;
 }
 
 function firstLine(text: string, max = 72): string {
@@ -555,7 +600,7 @@ async function runIsolatedParallel(opts: {
 	cwd: string;
 	agents: AgentConfig[];
 	tasks: IsolationTask[];
-	modelSelect: ModelSelectContext;
+	modelSelect: RuntimeModelSelectContext;
 	signal: AbortSignal | undefined;
 	onUpdate: OnUpdateCallback | undefined;
 	makeDetails: (results: SingleResult[]) => SubagentDetails;
@@ -656,6 +701,8 @@ async function runIsolatedParallel(opts: {
 				makeDetails,
 				modelSelect,
 				t.model,
+				t.policy,
+				t.thinkingLevel,
 			);
 			allResults[index] = result;
 			emit();
@@ -800,12 +847,23 @@ async function runIsolatedParallel(opts: {
 	};
 }
 
+const OptimizationPolicySchema = StringEnum(OPTIMIZATION_POLICIES, {
+	description:
+		"Optional model optimization policy. auto uses the agent role; combinations jointly optimize quality, speed, and/or cost.",
+});
+
+const ThinkingLevelSchema = StringEnum(THINKING_LEVELS, {
+	description: "Optional exact thinking level for the selected child model.",
+});
+
 const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task to delegate to the agent" }),
 	model: Type.Optional(
 		Type.String({ description: "Optional model override (provider/id or id). Falls back if unavailable." }),
 	),
+	policy: Type.Optional(OptimizationPolicySchema),
+	thinkingLevel: Type.Optional(ThinkingLevelSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
@@ -815,6 +873,8 @@ const ChainItem = Type.Object({
 	model: Type.Optional(
 		Type.String({ description: "Optional model override (provider/id or id). Falls back if unavailable." }),
 	),
+	policy: Type.Optional(OptimizationPolicySchema),
+	thinkingLevel: Type.Optional(ThinkingLevelSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
 });
 
@@ -832,6 +892,8 @@ const SubagentParams = Type.Object({
 				"Optional model override for single mode (provider/id or id). Defaults to the active session model; falls back if unavailable.",
 		}),
 	),
+	policy: Type.Optional(OptimizationPolicySchema),
+	thinkingLevel: Type.Optional(ThinkingLevelSchema),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
@@ -922,6 +984,7 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+			"Optionally choose a quality/speed/cost policy and thinking level; omitting both preserves legacy model inheritance.",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
 		].join(" "),
@@ -931,7 +994,7 @@ export default function (pi: ExtensionAPI) {
 			"Use subagent tasks for parallel independent work, and subagent chain when a later step needs an earlier step's output via the {previous} placeholder.",
 			'Use subagent with isolation: "git-worktree" whenever parallel tasks may modify files; it requires a clean git tree, merges clean-only, and preserves conflicts for manual resolution (never auto-resolved).',
 			"Use subagent parallel mode without isolation only for read-only agents (scout/planner/reviewer); serialize write-heavy work with chain or isolate worker tasks.",
-			"Use subagent children with the inherited session model by default; prefer /subagent-model or a per-task model override rather than hard-coding provider-specific model IDs.",
+			"Use subagent children with the inherited session model by default; use a subagent policy to optimize quality, speed, and/or cost, and reserve exact model overrides for explicit user requirements.",
 		],
 		parameters: SubagentParams,
 
@@ -940,10 +1003,21 @@ export default function (pi: ExtensionAPI) {
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 
-			const modelSelect: ModelSelectContext = {
-				available: ctx.modelRegistry.getAvailable() as ModelRef[],
+			const availableModels = ctx.modelRegistry.getAvailable();
+			const chooserRequested =
+				params.policy !== undefined ||
+				params.thinkingLevel !== undefined ||
+				params.tasks?.some((item) => item.policy !== undefined || item.thinkingLevel !== undefined) ||
+				params.chain?.some((item) => item.policy !== undefined || item.thinkingLevel !== undefined) ||
+				false;
+			const childCatalog = chooserRequested ? await getFreshChildCatalog() : undefined;
+			const modelSelect: RuntimeModelSelectContext = {
+				available: availableModels as ModelRef[],
 				current: ctx.model as ModelRef | undefined,
 				sessionPin: subagentModelPin,
+				chooserCandidates: chooserRequested
+					? adaptPiModels(availableModels, childCatalog)
+					: undefined,
 			};
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
@@ -1049,6 +1123,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("chain"),
 						modelSelect,
 						step.model,
+						step.policy,
+						step.thinkingLevel,
 					);
 					results.push(result);
 
@@ -1151,6 +1227,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("parallel"),
 						modelSelect,
 						t.model,
+						t.policy,
+						t.thinkingLevel,
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -1195,6 +1273,8 @@ export default function (pi: ExtensionAPI) {
 					makeDetails("single"),
 					modelSelect,
 					params.model,
+					params.policy,
+					params.thinkingLevel,
 				);
 				const isError = isFailedResult(result);
 				if (isError) {

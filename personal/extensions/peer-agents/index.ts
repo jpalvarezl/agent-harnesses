@@ -2,7 +2,18 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import {
+  OPTIMIZATION_POLICIES,
+  THINKING_LEVELS,
+  type OptimizationPolicy,
+  type SelectionDecision,
+  type ThinkingLevel,
+} from "../../model-chooser/index.ts";
+import { getFreshChildCatalog } from "../../model-chooser/child-catalog.ts";
+import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
+import { resolvePeerChoice, type PeerRole } from "./chooser-select.ts";
 import {
   selectPeerModelWithFallback,
   type ModelReference,
@@ -22,8 +33,15 @@ const MAX_STDERR_BYTES = 20 * 1024;
 interface ChildResult {
   output: string;
   model: ModelReference;
+  thinkingLevel: ThinkingLevel;
   stderr: string;
   turns: number;
+}
+
+interface SelectedPeer {
+  selection: PeerModelSelection;
+  thinkingLevel: ThinkingLevel;
+  decision?: SelectionDecision;
 }
 
 const RUBBER_DUCK_PROMPT = `You are a rigorous but collaborative rubber-duck partner.
@@ -79,23 +97,54 @@ function modelSpec(model: ModelReference): string {
   return `${model.provider}/${model.id}`;
 }
 
-function selectionLabel(selection: PeerModelSelection): string {
+function selectionLabel(selection: PeerModelSelection, decision?: SelectionDecision): string {
   return selection.crossFamily
     ? modelSpec(selection.model)
-    : `${modelSpec(selection.model)} (same-family fallback)`;
+    : `${modelSpec(selection.model)} (${decision ? "same-family selection" : "same-family fallback"})`;
 }
 
-function choosePeerModel(ctx: ExtensionContext): PeerModelSelection {
-  const selected = selectPeerModelWithFallback(ctx.model, ctx.modelRegistry.getAvailable());
-  if (!selected) {
-    throw new Error("No authenticated peer model is available. Run /login or configure another model.");
+function sameFamilyNotice(selection: PeerModelSelection, decision?: SelectionDecision): string {
+  if (selection.crossFamily) return "";
+  return decision
+    ? "\nModel selection: the requested chooser policy/override selected a same-family peer.\n"
+    : "\nNote: no opposite-family model was authenticated; this used a different same-family model.\n";
+}
+
+async function choosePeerModel(
+  ctx: ExtensionContext,
+  role: PeerRole,
+  options: { model?: string; policy?: OptimizationPolicy; thinkingLevel?: ThinkingLevel },
+): Promise<SelectedPeer> {
+  const available = ctx.modelRegistry.getAvailable();
+  const chooserEnabled = options.model !== undefined || options.policy !== undefined || options.thinkingLevel !== undefined;
+  if (!chooserEnabled) {
+    const selection = selectPeerModelWithFallback(ctx.model, available);
+    if (!selection) {
+      throw new Error("No authenticated peer model is available. Run /login or configure another model.");
+    }
+    return { selection, thinkingLevel: "high" };
   }
-  return selected;
+
+  const childCatalog = await getFreshChildCatalog();
+  const result = resolvePeerChoice({
+    role,
+    current: ctx.model,
+    available,
+    candidates: adaptPiModels(available, childCatalog),
+    model: options.model,
+    policy: options.policy,
+    thinkingLevel: options.thinkingLevel,
+  });
+  if (!result.selection || !result.thinkingLevel) {
+    throw new Error(result.error ?? "No eligible peer model is available");
+  }
+  return { selection: result.selection, thinkingLevel: result.thinkingLevel, decision: result.decision };
 }
 
 async function runPeer(
   ctx: ExtensionContext,
   model: ModelReference,
+  thinkingLevel: ThinkingLevel,
   systemPrompt: string,
   task: string,
   signal: AbortSignal | undefined,
@@ -119,7 +168,7 @@ async function runPeer(
       "--model",
       modelSpec(model),
       "--thinking",
-      "high",
+      thinkingLevel,
       "--tools",
       "read,grep,find,ls",
       "--system-prompt",
@@ -209,7 +258,7 @@ async function runPeer(
           } else if (code !== 0 || !finalOutput) {
             reject(new Error(stderr.trim() || `Peer agent exited with code ${code ?? "unknown"}`));
           } else {
-            resolve({ output: finalOutput, model, stderr, turns });
+            resolve({ output: finalOutput, model, thinkingLevel, stderr, turns });
           }
         });
       });
@@ -228,6 +277,13 @@ async function runPeer(
   }
 }
 
+const OptimizationPolicySchema = StringEnum(OPTIMIZATION_POLICIES, {
+  description: "Optional model policy across quality, speed, and cost. auto uses the peer role.",
+});
+const ThinkingLevelSchema = StringEnum(THINKING_LEVELS, {
+  description: "Optional exact thinking level for the selected peer model.",
+});
+
 export default function peerAgents(pi: ExtensionAPI) {
   const timeoutMs = positiveIntegerFromEnv(process.env.PI_PEER_AGENT_TIMEOUT_MS, DEFAULT_PEER_TIMEOUT_MS);
   const maxConcurrency = positiveIntegerFromEnv(
@@ -241,7 +297,7 @@ export default function peerAgents(pi: ExtensionAPI) {
     name: "rubber_duck",
     label: "Rubber Duck",
     description:
-      "Ask an independent read-only peer, preferably from the opposite GPT/Claude family, to challenge an idea or design. Returns questions, tradeoffs, and a recommendation.",
+      "Ask an independent read-only peer, preferably from another model family, to challenge an idea or design. Optionally select an exact model or a quality/speed/cost policy.",
     promptSnippet: "Get a critical second opinion, preferably from a different model family",
     promptGuidelines: [
       "Use rubber_duck when the user asks for a second opinion, when a nontrivial design has competing approaches, or when reasoning is stuck.",
@@ -250,11 +306,15 @@ export default function peerAgents(pi: ExtensionAPI) {
     parameters: Type.Object({
       idea: Type.String({ description: "The idea, design, decision, or reasoning to examine" }),
       question: Type.Optional(Type.String({ description: "A specific uncertainty for the peer to focus on" })),
+      model: Type.Optional(Type.String({ description: "Optional exact peer model (provider/id or unambiguous id)." })),
+      policy: Type.Optional(OptimizationPolicySchema),
+      thinkingLevel: Type.Optional(ThinkingLevelSchema),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
-      const selection = choosePeerModel(ctx);
+      const selectedPeer = await choosePeerModel(ctx, "rubber-duck", params);
+      const { selection, thinkingLevel, decision } = selectedPeer;
       onUpdate?.({
-        content: [{ type: "text", text: `Consulting ${selectionLabel(selection)}…` }],
+        content: [{ type: "text", text: `Consulting ${selectionLabel(selection, decision)}…` }],
         details: selection,
       });
       const task = [
@@ -263,24 +323,22 @@ export default function peerAgents(pi: ExtensionAPI) {
         params.question ? `\n## Focus question\n${params.question}` : "",
         `\nThe originating agent is using ${ctx.model ? modelSpec(ctx.model) : "an unknown model"}; provide a genuinely independent perspective.`,
       ].join("\n");
-      const result = await runPeer(ctx, selection.model, RUBBER_DUCK_PROMPT, task, signal, {
+      const result = await runPeer(ctx, selection.model, thinkingLevel, RUBBER_DUCK_PROMPT, task, signal, {
         timeoutMs,
         semaphore,
         onStatus: (message) => {
           onUpdate?.({ content: [{ type: "text", text: message }], details: selection });
         },
       });
-      const fallbackNotice = selection.crossFamily
-        ? ""
-        : "\nNote: no opposite-family model was authenticated; this used a different same-family model.\n";
+      const fallbackNotice = sameFamilyNotice(selection, decision);
       return {
         content: [
           {
             type: "text",
-            text: `Peer model: ${selectionLabel(selection)}${fallbackNotice}\n${result.output}`,
+            text: `Peer model: ${selectionLabel(selection, decision)}:${thinkingLevel}${fallbackNotice}\n${result.output}`,
           },
         ],
-        details: { ...result, ...selection },
+        details: { ...result, ...selection, decision },
       };
     },
   });
@@ -289,7 +347,7 @@ export default function peerAgents(pi: ExtensionAPI) {
     name: "code_review",
     label: "Code Review",
     description:
-      "Dispatch an independent read-only peer to review the complete local diff, including committed, staged, unstaged, and untracked changes. Use before push/PR creation and whenever the user requests review.",
+      "Dispatch an independent read-only peer to review the complete local diff, including committed, staged, unstaged, and untracked changes. Optionally select an exact model or a quality/speed/cost policy.",
     promptSnippet: "Review the complete local git diff with an independent peer model",
     promptGuidelines: [
       "Use code_review after substantive code changes and before running git push or gh pr create; address BLOCK or REVISE findings before pushing.",
@@ -300,13 +358,17 @@ export default function peerAgents(pi: ExtensionAPI) {
         Type.String({ description: "Base ref for the review, such as origin/main. Defaults to origin/HEAD, main, or master." }),
       ),
       focus: Type.Optional(Type.String({ description: "Optional review focus, such as concurrency, API compatibility, or tests" })),
+      model: Type.Optional(Type.String({ description: "Optional exact review model (provider/id or unambiguous id)." })),
+      policy: Type.Optional(OptimizationPolicySchema),
+      thinkingLevel: Type.Optional(ThinkingLevelSchema),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       onUpdate?.({ content: [{ type: "text", text: "Capturing local diff…" }], details: {} });
       const snapshot = await createReviewSnapshot(runGit, ctx.cwd, params.base, signal);
-      const selection = choosePeerModel(ctx);
+      const selectedPeer = await choosePeerModel(ctx, "code-review", params);
+      const { selection, thinkingLevel, decision } = selectedPeer;
       onUpdate?.({
-        content: [{ type: "text", text: `Reviewing with ${selectionLabel(selection)}…` }],
+        content: [{ type: "text", text: `Reviewing with ${selectionLabel(selection, decision)}…` }],
         details: { ...selection, base: snapshot.baseLabel },
       });
 
@@ -335,7 +397,7 @@ ${snapshot.diff}
 \`\`\`${truncationNote}
 
 Check the surrounding implementation and tests with read-only tools. Report only findings introduced by or relevant to this change set.`;
-      const result = await runPeer(ctx, selection.model, CODE_REVIEW_PROMPT, task, signal, {
+      const result = await runPeer(ctx, selection.model, thinkingLevel, CODE_REVIEW_PROMPT, task, signal, {
         cwd: snapshot.root,
         timeoutMs,
         semaphore,
@@ -346,17 +408,15 @@ Check the surrounding implementation and tests with read-only tools. Report only
           });
         },
       });
-      const fallbackNotice = selection.crossFamily
-        ? ""
-        : "\nModel selection: same-family fallback because no opposite-family model was authenticated.\n";
+      const fallbackNotice = sameFamilyNotice(selection, decision);
       return {
         content: [
           {
             type: "text",
-            text: `Review model: ${selectionLabel(selection)}\nBase: ${snapshot.baseLabel} (${snapshot.baseCommit.slice(0, 12)})${fallbackNotice}\n${result.output}`,
+            text: `Review model: ${selectionLabel(selection, decision)}:${thinkingLevel}\nBase: ${snapshot.baseLabel} (${snapshot.baseCommit.slice(0, 12)})${fallbackNotice}\n${result.output}`,
           },
         ],
-        details: { ...result, ...selection, snapshot },
+        details: { ...result, ...selection, decision, snapshot },
       };
     },
   });

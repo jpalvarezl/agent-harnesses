@@ -97,7 +97,7 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
 | Parallel | `{ tasks: [...] }` | Multiple agents run concurrently (max 8, 4 concurrent) |
 | Chain | `{ chain: [...] }` | Sequential with `{previous}` placeholder |
 
-All modes accept an optional `model` override (per call in single mode, per item in `tasks`/`chain`).
+All modes accept optional `model`, `policy`, and `thinkingLevel` fields (per call in single mode, per item in `tasks`/`chain`). Omitting `policy` and `thinkingLevel` preserves the legacy model-inheritance behavior.
 
 ## Parallel Isolation (git worktrees)
 
@@ -133,21 +133,53 @@ Isolation applies to **parallel `tasks` mode only** (that is where races occur).
 
 ## Model Selection
 
-Subagents choose their model as the first **available** candidate in this precedence order:
+### Optimization policies
 
-1. Explicit `model` on the tool call / task / chain item (LLM-settable)
+Set `policy` to let the chooser select a model/thinking-level pair:
+
+- `auto` — resolve from the agent role (`scout` → `speed-cost`, `planner` → `quality-speed`, `worker` → `balanced`, `reviewer` → `quality`)
+- `quality`, `speed`, or `cost`
+- `quality-speed`, `quality-cost`, or `speed-cost` — joint objectives
+- `balanced` — jointly optimize all three
+
+Set `thinkingLevel` (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`) to require a particular supported level. Policies are opt-in: when both `policy` and `thinkingLevel` are omitted, subagents use the unchanged legacy path.
+
+```jsonc
+// Single: optimize automatically for the agent role
+{ "agent": "scout", "task": "Map the auth flow", "policy": "auto" }
+
+// Parallel: use a cheap scout and a quality-focused reviewer
+{
+  "tasks": [
+    { "agent": "scout", "task": "Find relevant files", "policy": "speed-cost" },
+    { "agent": "reviewer", "task": "Audit the design", "policy": "quality" }
+  ]
+}
+```
+
+Phase 2 uses Pi's local catalog prices plus low-confidence thinking-effort priors. It does not yet claim benchmark-backed model quality or measured latency; those enrichments are tracked separately. Zero/default prices are unknown, not free.
+
+### Precedence and compatibility
+
+Subagents preserve the following model precedence:
+
+1. Explicit `model` on the tool call / task / chain item
 2. Session default set with `/subagent-model`
-3. Agent frontmatter `model:` (a preference, not a mandate)
-4. **Inherited active session model** (default)
+3. Agent frontmatter `model:`
+4. Policy selection, when opted in
+5. **Inherited active session model**
+6. Child CLI default
 
-A `model` value may be `provider/id` (e.g. `github-copilot/claude-sonnet-4.5`) or a bare `id`. Any candidate that is not in the authenticated model list is skipped (never fatal), and the fallback is shown as a muted `model: ...` note in the tool output. If nothing resolves, the child `pi` process uses its own CLI default.
+A `model` value may be canonical `provider/id` (recommended) or an unambiguous bare `id`. Unavailable candidates are skipped and reported. Ambiguous bare IDs no longer select an arbitrary provider; qualify them with the provider. Exact/session/frontmatter preferences stay pinned while a policy chooses their thinking level. Cost-bearing policies may select another model when no stronger pin exists.
+
+Chooser-enabled calls verify models against a cached fresh child-runtime catalog. A model known only to the parent process is not selected for a child. If the fresh catalog cannot be loaded, no eligible model remains, or the requested thinking level is unsupported, the task fails before dispatch with a diagnostic instead of silently running a different model.
 
 **`/subagent-model`** — pick a session-scoped default model for subagents:
 - `/subagent-model` — interactive picker over available models (plus "inherit active session model")
 - `/subagent-model github-copilot/claude-sonnet-4.5` — set directly
 - `/subagent-model` then choose inherit, or set an empty value — clear the pin
 
-The pin is per session and resets on new/resumed sessions. The parent LLM can still override it per task via the `model` parameter.
+The pin is per session and resets on new/resumed sessions. The parent LLM can still override it per task via the `model` parameter. A pin is stronger than `policy`; the policy still chooses a compatible thinking level for the pinned model.
 
 ## Output Display
 
