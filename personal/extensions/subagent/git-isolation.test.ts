@@ -29,6 +29,11 @@ function makeRepo(): string {
 	git(["config", "user.email", "t@t.dev"], dir);
 	git(["config", "user.name", "Test"], dir);
 	git(["config", "commit.gpgsign", "false"], dir);
+	// Keep temporary repositories hermetic. Windows Git commonly inherits
+	// system core.autocrlf=true, which rewrites checkout results to CRLF and
+	// makes byte-exact merge assertions depend on the developer machine.
+	git(["config", "core.autocrlf", "false"], dir);
+	git(["config", "core.eol", "lf"], dir);
 	fs.writeFileSync(path.join(dir, "base.txt"), "base\n");
 	git(["add", "-A"], dir);
 	git(["commit", "-q", "-m", "init"], dir);
