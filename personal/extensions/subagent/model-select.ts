@@ -6,6 +6,8 @@
  * Invalid candidates are skipped (never fatal) and reported via `note`.
  */
 
+import { resolveModelSpec, type ModelResolution } from "../../model-chooser/index.ts";
+
 export interface ModelRef {
 	id: string;
 	provider: string;
@@ -23,16 +25,18 @@ export function modelSpec(m: ModelRef): string {
 	return `${m.provider}/${m.id}`;
 }
 
-/** Resolve a "provider/id" or bare "id" spec against the authenticated models. */
+/** Resolve a canonical provider/id or an unambiguous bare id. */
+export function resolveAvailableModel(available: ModelRef[], spec: string): ModelResolution<ModelRef> {
+	return resolveModelSpec(available, spec);
+}
+
 export function findAvailableModel(available: ModelRef[], spec: string): ModelRef | undefined {
-	const slash = spec.indexOf("/");
-	if (slash > 0) {
-		const provider = spec.slice(0, slash);
-		const id = spec.slice(slash + 1);
-		const exact = available.find((m) => m.provider === provider && m.id === id);
-		if (exact) return exact;
-	}
-	return available.find((m) => m.id === spec);
+	const resolution = resolveAvailableModel(available, spec);
+	return resolution.status === "found" ? resolution.model : undefined;
+}
+
+function ambiguousModelError(spec: string, matches: ModelRef[]): string {
+	return `Model "${spec}" is ambiguous; use a canonical provider/id: ${matches.map(modelSpec).sort().join(", ")}`;
 }
 
 export interface ResolvedModel {
@@ -40,6 +44,8 @@ export interface ResolvedModel {
 	spec: string | undefined;
 	source: string;
 	note?: string;
+	/** Hard resolution failure. Callers must not dispatch when set. */
+	error?: string;
 }
 
 export function resolveEffectiveModel(opts: {
@@ -58,12 +64,19 @@ export function resolveEffectiveModel(opts: {
 	const skipped: string[] = [];
 	for (const c of candidates) {
 		if (!c.value) continue;
-		const found = findAvailableModel(opts.available, c.value);
-		if (found) {
+		const resolution = resolveAvailableModel(opts.available, c.value);
+		if (resolution.status === "ambiguous") {
+			return {
+				spec: undefined,
+				source: c.source,
+				error: ambiguousModelError(c.value, resolution.matches),
+			};
+		}
+		if (resolution.status === "found") {
 			const note = skipped.length
-				? `model: ${modelSpec(found)} (${c.source}); skipped unavailable: ${skipped.join(", ")}`
+				? `model: ${modelSpec(resolution.model)} (${c.source}); skipped unavailable: ${skipped.join(", ")}`
 				: undefined;
-			return { spec: modelSpec(found), source: c.source, note };
+			return { spec: modelSpec(resolution.model), source: c.source, note };
 		}
 		skipped.push(c.value);
 	}

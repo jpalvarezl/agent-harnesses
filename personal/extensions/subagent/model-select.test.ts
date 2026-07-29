@@ -22,8 +22,30 @@ test("findAvailableModel matches bare id (provider-agnostic)", () => {
 	assert.equal(m?.provider, "github-copilot");
 });
 
-test("findAvailableModel returns undefined for unknown spec", () => {
+test("findAvailableModel returns undefined for unknown or ambiguous bare specs", () => {
 	assert.equal(findAvailableModel(available, "claude-haiku-4-5"), undefined);
+	assert.equal(findAvailableModel(available, "claude-sonnet-4.5"), undefined);
+});
+
+test("findAvailableModel handles case-insensitive canonical specs and slash-containing ids", () => {
+	assert.equal(findAvailableModel(available, "ANTHROPIC/CLAUDE-SONNET-4.5")?.provider, "anthropic");
+	const withSlash = [...available, { provider: "openrouter", id: "qwen/qwen-3" }];
+	assert.equal(findAvailableModel(withSlash, "qwen/qwen-3")?.provider, "openrouter");
+	assert.equal(findAvailableModel(withSlash, "openrouter/qwen/qwen-3")?.id, "qwen/qwen-3");
+});
+
+test("ambiguous task, session, or frontmatter models fail with canonical options", () => {
+	for (const input of [
+		{ taskModel: "claude-sonnet-4.5" },
+		{ sessionPin: "claude-sonnet-4.5" },
+		{ agentModel: "claude-sonnet-4.5" },
+	]) {
+		const result = resolveEffectiveModel({ ...input, current, available });
+		assert.equal(result.spec, undefined);
+		assert.match(result.error ?? "", /ambiguous/);
+		assert.match(result.error ?? "", /anthropic\/claude-sonnet-4\.5/);
+		assert.match(result.error ?? "", /github-copilot\/claude-sonnet-4\.5/);
+	}
 });
 
 test("task model wins over session pin, frontmatter, and inherited", () => {

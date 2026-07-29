@@ -200,7 +200,7 @@ Swift 6 development guidelines (strict concurrency, actor isolation, Sendable, a
 Delegate work to specialized subagents with **isolated context windows** (each runs as a separate `pi` process). Registers the model-callable `subagent` tool and `/subagent-model`, and ships agent definitions (`scout`, `planner`, `reviewer`, `worker`) plus workflow prompts (`/implement`, `/scout-and-plan`, `/implement-and-review`).
 
 - **Modes:** single `{agent, task}`, parallel `{tasks: [...]}`, chain `{chain: [...]}` (sequential; `{previous}` is replaced with the prior step's output).
-- **Models:** children inherit the active session model by default; set a cheaper session default with `/subagent-model`, or pass a per-task `model`.
+- **Models:** children inherit the active session model by default; set a session pin with `/subagent-model`, pass an exact per-task `model`, or opt into a `policy` (`auto`, `quality`, `speed`, `cost`, any two-way combination, or `balanced`) with an optional `thinkingLevel`. Use canonical `provider/id` specs: ambiguous bare IDs are rejected rather than selecting an arbitrary provider.
 - **Parallel writes:** pass `isolation: "git-worktree"` so each task runs in its own worktree/branch and the harness merges them back (clean-merge-only; conflicts preserved for manual resolution; optional `buildCommand` gate; `cleanup` = `on-success` | `never`). Requires a clean git tree.
 
 Full reference: [`personal/extensions/subagent/README.md`](personal/extensions/subagent/README.md).
@@ -215,8 +215,8 @@ Run 2 scouts in parallel: one to find the models, one to find the providers.
 ### `peer-agents`
 Run isolated, read-only peer agents, preferably using a different model family. Registers two model-callable tools:
 
-- `rubber_duck` challenges designs and assumptions. A GPT parent prefers a configured high-capability Claude Opus model; a Claude parent prefers a configured stable GPT model. If no opposite-family model is authenticated, it explicitly reports that it is using a different same-family model instead.
-- `code_review` reviews committed, staged, unstaged, and untracked changes against the requested base (or the repository's default branch). It runs from the Git root so repository-relative paths work even when the parent session starts in a subdirectory.
+- `rubber_duck` challenges designs and assumptions. By default, a GPT parent prefers a configured high-capability Claude model and vice versa. Optionally pass `policy`, `thinkingLevel`, or an exact `model`; chooser policies retain categorical family/vendor diversity.
+- `code_review` reviews committed, staged, unstaged, and untracked changes against the requested base (or the repository's default branch). It runs from the Git root so repository-relative paths work even when the parent session starts in a subdirectory, and accepts the same optional model-selection fields.
 
 Pi executes sibling tool calls concurrently. The extension permits four peer subprocesses by default, queues additional calls, enforces a five-minute timeout per running peer, and propagates cancellation. Override these defaults with `PI_PEER_AGENT_MAX_CONCURRENCY` and `PI_PEER_AGENT_TIMEOUT_MS`.
 
@@ -226,6 +226,7 @@ The tools instruct the main agent to run `code_review` after substantive changes
 Bounce this caching design off the rubber duck agent.
 Review my local diff against origin/main before creating the PR.
 Ask two rubber duck agents in parallel to evaluate the API and concurrency designs.
+Use a quality-cost policy for the next independent code review.
 ```
 
 ### `model-dynamics`
