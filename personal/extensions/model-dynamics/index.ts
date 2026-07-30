@@ -16,6 +16,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 import {
+  getModelsDevMetadataStatus,
+  hydrateModelsDevMetadata,
+  refreshModelsDevMetadata,
+} from "../../model-chooser/models-dev-runtime.ts";
+import {
   getReasoningCapabilities,
   isCopilotModelEntry,
   isSelectableCopilotModel,
@@ -314,9 +319,19 @@ async function fetchCopilotModels(
 export default function (pi: ExtensionAPI) {
   let sessionReady = false;
   let changingModel = false;
+  let metadataRefreshController: AbortController | undefined;
 
   pi.on("session_start", async (_event, ctx) => {
     sessionReady = false;
+    if (process.env.PI_SUBAGENT_CHILD !== "1") {
+      await hydrateModelsDevMetadata();
+      metadataRefreshController?.abort();
+      metadataRefreshController = new AbortController();
+      // Stale-while-revalidate: tools use the hydrated snapshot immediately;
+      // network refresh remains outside model-selection tool execution. Nested
+      // child Pi processes skip this to avoid parallel catalog downloads.
+      void refreshModelsDevMetadata({ signal: metadataRefreshController.signal });
+    }
 
     try {
       const saved = await loadPersistedSelection();
@@ -387,7 +402,55 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    metadataRefreshController?.abort();
+    metadataRefreshController = undefined;
     ctx.ui.setStatus("dynamic-model", undefined);
+    ctx.ui.setStatus("model-metadata", undefined);
+  });
+
+  pi.registerCommand("model-metadata", {
+    description: "Inspect or refresh cached models.dev chooser metadata",
+    getArgumentCompletions: (prefix) => {
+      const options = [
+        { value: "status", label: "status", description: "Show cache freshness and current-model matches" },
+        { value: "refresh", label: "refresh", description: "Force a conditional models.dev refresh" },
+      ];
+      const filtered = options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
+      return filtered.length > 0 ? filtered : null;
+    },
+    handler: async (args, ctx) => {
+      const action = args.trim().toLowerCase() || "status";
+      if (action === "refresh") {
+        metadataRefreshController?.abort();
+        metadataRefreshController = new AbortController();
+        ctx.ui.setStatus("model-metadata", "Refreshing models.dev metadata…");
+        const result = await refreshModelsDevMetadata({ force: true, signal: metadataRefreshController.signal });
+        ctx.ui.setStatus("model-metadata", undefined);
+        if (result.status === "error") {
+          ctx.ui.notify(`models.dev refresh failed; cached metadata kept: ${result.error}`, "error");
+          return;
+        }
+        if (result.status === "offline") {
+          ctx.ui.notify("models.dev refresh skipped because PI_OFFLINE is enabled", "warning");
+          return;
+        }
+        ctx.ui.notify(`models.dev metadata: ${result.status}`, "info");
+      } else if (action !== "status") {
+        ctx.ui.notify("Usage: /model-metadata [status|refresh]", "error");
+        return;
+      }
+
+      const status = getModelsDevMetadataStatus(ctx.modelRegistry.getAvailable());
+      const unmatched = status.unmatchedModels.length > 0
+        ? `; unmatched: ${status.unmatchedModels.slice(0, 5).join(", ")}${status.unmatchedModels.length > 5 ? ` (+${status.unmatchedModels.length - 5})` : ""}`
+        : "";
+      ctx.ui.notify(
+        status.available
+          ? `models.dev ${status.fresh ? "fresh" : "stale"}; matched ${status.matchedModels}/${status.matchedModels + status.unmatchedModels.length}; validated ${status.validatedAt}${unmatched}`
+          : `No models.dev cache at ${status.cachePath}${unmatched}`,
+        status.available ? "info" : "warning",
+      );
+    },
   });
 
   pi.registerCommand("model_cur", {
