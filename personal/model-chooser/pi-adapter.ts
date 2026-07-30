@@ -9,9 +9,6 @@ import {
 export interface PiModelLike extends ModelIdentity {
 	reasoning: boolean;
 	thinkingLevelMap?: Partial<Record<ThinkingLevel, string | null>>;
-	input: readonly ("text" | "image")[];
-	contextWindow: number;
-	maxTokens: number;
 	cost?: {
 		input: number;
 		output: number;
@@ -67,10 +64,6 @@ export function adaptPiModels(
 		id: model.id,
 		name: model.name,
 		...inferModelFamilyVendor(model),
-		input: [...model.input],
-		contextWindow: model.contextWindow,
-		maxTokens: model.maxTokens,
-		reasoning: model.reasoning,
 		cost: positiveReferenceRate(model),
 		spawnResolvable: childCatalog === undefined ? "unknown" : assessSpawnResolvability(model, childCatalog),
 		variants: getSupportedThinkingLevels(model).map((thinkingLevel) => ({ thinkingLevel })),

@@ -16,10 +16,6 @@ function candidate(
 		name: id,
 		family: id.startsWith("claude") ? "claude" : "gpt",
 		vendor: id.startsWith("claude") ? "anthropic" : "openai",
-		input: ["text"],
-		contextWindow: 200_000,
-		maxTokens: 64_000,
-		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
 		cost,
 		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
@@ -84,6 +80,39 @@ test("chooser-enabled calls preserve ambiguous explicit-model failures", () => {
 	assert.match(resolved.error ?? "", /one\/shared, two\/shared/);
 });
 
+test("exact model without a policy is child-verified without changing thinking", () => {
+	const safe = resolveChooserModel({
+		taskModel: "gpt-current",
+		current,
+		available,
+		candidates,
+		agentName: "worker",
+	});
+	assert.equal(safe.spec, "github-copilot/gpt-current");
+	assert.equal(safe.thinkingLevel, undefined);
+
+	const unsafe = resolveChooserModel({
+		taskModel: "runtime-only",
+		current,
+		available,
+		candidates,
+		agentName: "worker",
+	});
+	assert.equal(unsafe.spec, undefined);
+	assert.match(unsafe.error ?? "", /not resolvable by a fresh child/);
+
+	const unavailable = resolveChooserModel({
+		taskModel: "does-not-exist",
+		current,
+		available,
+		candidates,
+		agentName: "worker",
+	});
+	assert.equal(unavailable.spec, "github-copilot/gpt-current");
+	assert.equal(unavailable.source, "inherited session");
+	assert.equal(unavailable.error, undefined);
+});
+
 test("quality pins the inherited model and selects its stronger thinking variant", () => {
 	const resolved = resolveChooserModel({
 		current,
@@ -136,6 +165,17 @@ test("task model, session pin, and frontmatter remain stronger than policy", () 
 	});
 	assert.equal(task.spec, "github-copilot/claude-pin");
 	assert.equal(task.source, "task");
+
+	const frontmatter = resolveChooserModel({
+		agentModel: "claude-pin",
+		current,
+		available,
+		candidates,
+		agentName: "scout",
+		policy: "cost",
+	});
+	assert.equal(frontmatter.spec, "github-copilot/claude-pin");
+	assert.equal(frontmatter.source, "agent frontmatter");
 
 	const session = resolveChooserModel({
 		sessionPin: "claude-pin",

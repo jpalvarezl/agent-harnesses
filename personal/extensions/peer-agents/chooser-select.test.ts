@@ -8,19 +8,15 @@ import type { ModelReference } from "./model-selection.ts";
 function candidate(
 	id: string,
 	cost: number,
-	options: { spawnResolvable?: boolean; levels?: ThinkingLevel[] } = {},
+	options: { provider?: string; spawnResolvable?: boolean; levels?: ThinkingLevel[] } = {},
 ): ModelCandidate {
 	const claude = id.startsWith("claude");
 	return {
-		provider: "github-copilot",
+		provider: options.provider ?? "github-copilot",
 		id,
 		name: id,
 		family: claude ? "claude" : "gpt",
 		vendor: claude ? "anthropic" : "openai",
-		input: ["text"],
-		contextWindow: 200_000,
-		maxTokens: 64_000,
-		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
 		cost,
 		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
@@ -74,6 +70,26 @@ test("explicit model and thinking overrides are honored", () => {
 	assert.equal(result.selection?.model.id, "gpt-5.4");
 	assert.equal(result.selection?.crossFamily, false);
 	assert.equal(result.thinkingLevel, "low");
+});
+
+test("ambiguous bare peer overrides fail with canonical options", () => {
+	const result = resolvePeerChoice({
+		role: "rubber-duck",
+		current,
+		available: [
+			...available,
+			{ provider: "one", id: "shared" },
+			{ provider: "two", id: "shared" },
+		],
+		candidates: [
+			...candidates,
+			candidate("shared", 1, { provider: "one" }),
+			candidate("shared", 1, { provider: "two" }),
+		],
+		model: "shared",
+	});
+	assert.equal(result.selection, undefined);
+	assert.match(result.error ?? "", /ambiguous: one\/shared, two\/shared/);
 });
 
 test("the current model cannot be selected as its own peer", () => {

@@ -1,6 +1,6 @@
 import {
 	modelSpec as chooserModelSpec,
-	policyDimensions,
+	policyUsesCost,
 	resolveModelSpec,
 	resolveOptimizationPolicy,
 	selectModel,
@@ -64,7 +64,16 @@ export function resolveChooserModel(opts: {
 		available: opts.available,
 	});
 
-	if (opts.policy === undefined && opts.thinkingLevel === undefined) return legacy;
+	if (opts.policy === undefined && opts.thinkingLevel === undefined) {
+		if (!opts.taskModel || legacy.source !== "task" || legacy.error || !legacy.spec) return legacy;
+		const exact = resolveModelSpec(opts.candidates, legacy.spec);
+		if (exact.status === "found" && exact.model.spawnResolvable === true) return legacy;
+		const error =
+			exact.status === "found" && exact.model.spawnResolvable === "unknown"
+				? `Requested model "${legacy.spec}" has unknown child-process resolvability`
+				: `Requested model "${legacy.spec}" is not resolvable by a fresh child process`;
+		return { ...legacy, spec: undefined, source: "chooser", error, note: joinNotes(legacy.note, `chooser: ${error}`) };
+	}
 
 	const role = agentRole(opts.agentName);
 	const { requested, resolved } = resolveOptimizationPolicy(opts.policy, role);
@@ -75,7 +84,7 @@ export function resolveChooserModel(opts: {
 			resolvedPolicy: resolved,
 		};
 	}
-	const usesCost = policyDimensions(resolved).includes("cost");
+	const usesCost = policyUsesCost(resolved);
 	let modelOverride: string | undefined;
 
 	if (legacy.spec) {

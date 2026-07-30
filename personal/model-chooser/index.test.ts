@@ -4,7 +4,7 @@ import test from "node:test";
 import {
 	assessSpawnResolvability,
 	modelSpec,
-	policyDimensions,
+	policyUsesCost,
 	resolveModelSpec,
 	resolveOptimizationPolicy,
 	selectModel,
@@ -21,10 +21,6 @@ function candidate(
 		vendor?: string;
 		spawnResolvable?: boolean | "unknown";
 		levels?: ThinkingLevel[];
-		input?: ("text" | "image")[];
-		reasoning?: boolean;
-		contextWindow?: number;
-		maxTokens?: number;
 	} = {},
 ): ModelCandidate {
 	return {
@@ -33,10 +29,6 @@ function candidate(
 		name: id,
 		family: options.family ?? (id.startsWith("claude") ? "claude" : "gpt"),
 		vendor: options.vendor ?? (id.startsWith("claude") ? "anthropic" : "openai"),
-		input: options.input ?? ["text"],
-		contextWindow: options.contextWindow ?? 200_000,
-		maxTokens: options.maxTokens ?? 64_000,
-		reasoning: options.reasoning ?? true,
 		cost: options.cost,
 		spawnResolvable: options.spawnResolvable ?? true,
 		variants: (options.levels ?? ["off", "minimal", "low", "medium", "high", "max"]).map((thinkingLevel) => ({ thinkingLevel })),
@@ -44,12 +36,30 @@ function candidate(
 }
 
 test("exposes all policy combinations and role-aware auto defaults", () => {
-	assert.deepEqual(policyDimensions("quality-speed"), ["quality", "speed"]);
-	assert.deepEqual(policyDimensions("quality-cost"), ["quality", "cost"]);
-	assert.deepEqual(policyDimensions("speed-cost"), ["speed", "cost"]);
-	assert.deepEqual(policyDimensions("balanced"), ["quality", "speed", "cost"]);
-	assert.equal(resolveOptimizationPolicy("auto", "scout").resolved, "speed-cost");
-	assert.equal(resolveOptimizationPolicy("auto", "reviewer").resolved, "quality");
+	assert.equal(policyUsesCost("quality"), false);
+	assert.equal(policyUsesCost("speed"), false);
+	assert.equal(policyUsesCost("quality-speed"), false);
+	assert.equal(policyUsesCost("cost"), true);
+	assert.equal(policyUsesCost("quality-cost"), true);
+	assert.equal(policyUsesCost("speed-cost"), true);
+	assert.equal(policyUsesCost("balanced"), true);
+	assert.deepEqual(
+		Object.fromEntries(
+			(["generic", "scout", "planner", "worker", "reviewer", "code-review", "rubber-duck"] as const).map((role) => [
+				role,
+				resolveOptimizationPolicy("auto", role).resolved,
+			]),
+		),
+		{
+			generic: "balanced",
+			scout: "speed-cost",
+			planner: "quality-speed",
+			worker: "balanced",
+			reviewer: "quality",
+			"code-review": "quality",
+			"rubber-duck": "quality",
+		},
+	);
 });
 
 test("resolves canonical, unambiguous bare, case-insensitive, and slash ids", () => {
@@ -134,27 +144,18 @@ test("categorical peer diversity outranks cost", () => {
 	assert.equal(decision.selected?.diversityRank, 3);
 });
 
-test("hard constraints filter before selection and an empty allow-list fails closed", () => {
+test("spawn-resolvability and explicit exclusions filter before selection", () => {
 	const models = [
-		candidate("bad", { spawnResolvable: "unknown", input: ["text"], reasoning: false, contextWindow: 10, maxTokens: 10 }),
-		candidate("good", { input: ["text", "image"] }),
+		candidate("runtime-only", { spawnResolvable: "unknown" }),
+		candidate("excluded"),
+		candidate("good"),
 	];
 	const decision = selectModel(models, {
 		policy: "quality",
-		constraints: {
-			requireSpawnResolvable: true,
-			requiredInput: ["image"],
-			requireReasoning: true,
-			minimumContextWindow: 100,
-			minimumMaxTokens: 100,
-		},
+		constraints: { requireSpawnResolvable: true, excludedModels: ["excluded"] },
 	});
 	assert.equal(decision.selected?.model.id, "good");
-	assert.equal(decision.rejected.length, 1);
-	assert.equal(
-		selectModel([models[1]], { constraints: { allowedProviders: [] } }).error,
-		"No eligible models are available",
-	);
+	assert.equal(decision.rejected.length, 2);
 });
 
 test("exact overrides beat policy but cannot bypass constraints", () => {
@@ -163,7 +164,7 @@ test("exact overrides beat policy but cannot bypass constraints", () => {
 	const denied = selectModel(models, {
 		policy: "cost",
 		modelOverride: "requested",
-		constraints: { deniedProviders: ["github-copilot"] },
+		constraints: { excludedModels: ["requested"] },
 	});
 	assert.match(denied.error ?? "", /ineligible/);
 });
@@ -178,15 +179,6 @@ test("ambiguous overrides and unsupported thinking fail clearly", () => {
 		thinkingLevelOverride: "max",
 	});
 	assert.match(unsupported.error ?? "", /supports thinking level max/);
-});
-
-test("alternatives are distinct models and bounded", () => {
-	const decision = selectModel(
-		[candidate("one", { cost: 1 }), candidate("two", { cost: 2 }), candidate("three", { cost: 3 })],
-		{ policy: "cost", maxAlternatives: 1 },
-	);
-	assert.equal(decision.selected?.model.id, "one");
-	assert.deepEqual(decision.alternatives.map((entry) => entry.model.id), ["two"]);
 });
 
 test("invalid candidate metadata fails early", () => {
