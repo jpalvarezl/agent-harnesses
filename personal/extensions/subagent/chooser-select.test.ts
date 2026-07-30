@@ -21,7 +21,7 @@ function candidate(
 		maxTokens: 64_000,
 		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
-		cost: 1 / cost,
+		cost,
 		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
 	};
 }
@@ -34,9 +34,9 @@ const available: ModelRef[] = [
 	{ provider: "github-copilot", id: "runtime-only" },
 ];
 const candidates = [
-	candidate("gpt-current", 0.3),
+	candidate("gpt-current", 3.3),
 	candidate("gpt-cheap", 1),
-	candidate("claude-pin", 0.5),
+	candidate("claude-pin", 2),
 	candidate("runtime-only", 1, { spawnResolvable: false }),
 ];
 

@@ -22,7 +22,7 @@ function candidate(
 		maxTokens: 64_000,
 		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
-		cost: 1 / cost,
+		cost,
 		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
 	};
 }
@@ -35,9 +35,9 @@ const available: ModelReference[] = [
 	{ provider: "github-copilot", id: "claude-haiku-4.5" },
 ];
 const candidates = [
-	candidate("gpt-5.5", 0.2),
-	candidate("gpt-5.4", 0.5),
-	candidate("claude-opus-4.8", 0.2),
+	candidate("gpt-5.5", 5),
+	candidate("gpt-5.4", 2),
+	candidate("claude-opus-4.8", 5),
 	candidate("claude-haiku-4.5", 1),
 ];
 

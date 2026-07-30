@@ -304,7 +304,10 @@ export function selectModel(candidates: readonly ModelCandidate[], request: Sele
 				? "Cost is unknown; used deterministic fallback ordering"
 				: `Selected lowest known input + output reference rate (${selected.cost} USD/Mtok)`,
 		);
-	else reasons.push("Quality/speed policy controls thinking only; model choice remains pinned by the caller/integration");
+	else
+		reasons.push(
+			"Quality/speed policy controls thinking only; model ordering uses a caller pin, peer diversity, or deterministic fallback",
+		);
 	const caveats: string[] = [];
 	if (policyDimensions(resolved).includes("cost") && selected.cost === undefined) caveats.push("Selected model has no known cost");
 	if (selected.model.spawnResolvable === "unknown") caveats.push("Child-process resolvability is unknown");
