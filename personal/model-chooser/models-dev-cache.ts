@@ -98,13 +98,17 @@ export class ModelsDevCache {
 
 	private async refreshOnce(options: { force?: boolean; signal?: AbortSignal }): Promise<ModelsDevRefreshResult> {
 		await this.hydrate();
+		if (options.signal?.aborted) {
+			return { status: "error", snapshot: this.snapshot, error: "models.dev refresh aborted before start" };
+		}
 		if (this.offline()) return { status: "offline", snapshot: this.snapshot };
 		if (!options.force && this.isFresh()) return { status: "fresh", snapshot: this.snapshot };
 
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 		const abort = () => controller.abort();
-		options.signal?.addEventListener("abort", abort, { once: true });
+		if (options.signal?.aborted) controller.abort();
+		else options.signal?.addEventListener("abort", abort, { once: true });
 		try {
 			const response = await this.fetchImpl(MODELS_DEV_CATALOG_URL, {
 				headers: {

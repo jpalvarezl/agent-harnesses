@@ -188,6 +188,29 @@ test("HTTP and malformed-payload failures preserve stale cache", async () => {
 	}
 });
 
+test("an already-aborted signal hydrates stale cache but never fetches", async () => {
+	const { dir, cachePath } = await tempCache(cachedSnapshot("2026-07-28T13:00:00.000Z"));
+	let calls = 0;
+	const controller = new AbortController();
+	controller.abort();
+	try {
+		const cache = new ModelsDevCache({
+			cachePath,
+			fetchImpl: async () => {
+				calls += 1;
+				return new Response(JSON.stringify(rawCatalog()), { status: 200 });
+			},
+		});
+		const result = await cache.refresh({ force: true, signal: controller.signal });
+		assert.equal(result.status, "error");
+		assert.match(result.error ?? "", /aborted before start/);
+		assert.equal(result.snapshot?.etag, 'W/"old"');
+		assert.equal(calls, 0);
+	} finally {
+		await fs.rm(dir, { recursive: true, force: true });
+	}
+});
+
 test("offline mode hydrates cache and never fetches", async () => {
 	const { dir, cachePath } = await tempCache(cachedSnapshot("2026-07-28T13:00:00.000Z"));
 	let calls = 0;
