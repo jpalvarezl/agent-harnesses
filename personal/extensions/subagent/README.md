@@ -158,7 +158,7 @@ Set `thinkingLevel` (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max
 }
 ```
 
-Phase 2 uses Pi's local catalog prices plus low-confidence thinking-effort priors. It does not yet claim benchmark-backed model quality or measured latency; those enrichments are tracked separately. Zero/default prices are unknown, not free.
+The chooser uses Pi's positive input + output list-price reference rate for cost-bearing policies. Zero/default prices are unknown, not free. Quality and speed policies are explicit thinking-level presets on the inherited/pinned model; they are not benchmark-backed cross-model claims.
 
 ### Precedence and compatibility
 

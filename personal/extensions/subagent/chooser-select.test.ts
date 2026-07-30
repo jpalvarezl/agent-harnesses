@@ -21,14 +21,8 @@ function candidate(
 		maxTokens: 64_000,
 		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
-		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({
-			thinkingLevel,
-			signals: {
-				quality: { value: thinkingLevel === "high" ? 1 : 0.5, confidence: 0.2, provenance: { source: "test" } },
-				speed: { value: thinkingLevel === "low" ? 1 : 0.5, confidence: 0.2, provenance: { source: "test" } },
-				cost: { value: cost * (thinkingLevel === "low" ? 1 : 0.8), confidence: 0.5, provenance: { source: "test" } },
-			},
-		})),
+		cost,
+		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
 	};
 }
 
@@ -40,9 +34,9 @@ const available: ModelRef[] = [
 	{ provider: "github-copilot", id: "runtime-only" },
 ];
 const candidates = [
-	candidate("gpt-current", 0.3),
+	candidate("gpt-current", 3.3),
 	candidate("gpt-cheap", 1),
-	candidate("claude-pin", 0.5),
+	candidate("claude-pin", 2),
 	candidate("runtime-only", 1, { spawnResolvable: false }),
 ];
 
