@@ -44,6 +44,18 @@ Top-level policy/thinking values default parallel and chain items; item values o
 
 ## Tests
 
+Pure tests:
+
 ```bash
 node --test personal/model-chooser/*.test.ts
 ```
+
+Paid end-to-end smoke test (runs one parent plus two child model calls):
+
+```bash
+node personal/model-chooser/smoke-test.ts
+# Optional parent model override (choose a non-cheapest model):
+node personal/model-chooser/smoke-test.ts github-copilot/gpt-5.6-sol
+```
+
+Run it from the repository root. The smoke task dispatches parallel `quality` and `cost` scouts. Both read `README.md` and must return its first heading; the script asserts child success, chooser notes, inherited quality-model behavior, policy/model divergence, expected output, and a ten-minute timeout. `PI_SMOKE_TIMEOUT_MS` overrides the timeout.
