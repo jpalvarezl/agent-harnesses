@@ -22,14 +22,8 @@ function candidate(
 		maxTokens: 64_000,
 		reasoning: true,
 		spawnResolvable: options.spawnResolvable ?? true,
-		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({
-			thinkingLevel,
-			signals: {
-				quality: { value: thinkingLevel === "high" ? 1 : 0.5, confidence: 0.2, provenance: { source: "test" } },
-				speed: { value: thinkingLevel === "low" ? 1 : 0.5, confidence: 0.2, provenance: { source: "test" } },
-				cost: { value: cost, confidence: 0.5, provenance: { source: "test" } },
-			},
-		})),
+		cost: 1 / cost,
+		variants: (options.levels ?? ["low", "high"]).map((thinkingLevel) => ({ thinkingLevel })),
 	};
 }
 

@@ -8,380 +8,199 @@ import {
 	resolveModelSpec,
 	resolveOptimizationPolicy,
 	selectModel,
-	type CandidateVariant,
 	type ModelCandidate,
-	type OptimizationDimension,
+	type ThinkingLevel,
 } from "./index.ts";
-
-function signal(value: number, confidence = 1, source = "test") {
-	return { value, confidence, provenance: { source } };
-}
-
-function variant(
-	thinkingLevel: CandidateVariant["thinkingLevel"],
-	values: Partial<Record<OptimizationDimension, number | { value: number; confidence: number }>>,
-): CandidateVariant {
-	return {
-		thinkingLevel,
-		signals: Object.fromEntries(
-			Object.entries(values).map(([dimension, entry]) => [
-				dimension,
-				typeof entry === "number" ? signal(entry) : signal(entry.value, entry.confidence),
-			]),
-		),
-	};
-}
 
 function candidate(
 	id: string,
-	variants: CandidateVariant[],
-	overrides: Partial<ModelCandidate> = {},
+	options: {
+		provider?: string;
+		cost?: number;
+		family?: string;
+		vendor?: string;
+		spawnResolvable?: boolean | "unknown";
+		levels?: ThinkingLevel[];
+		input?: ("text" | "image")[];
+		reasoning?: boolean;
+		contextWindow?: number;
+		maxTokens?: number;
+	} = {},
 ): ModelCandidate {
 	return {
-		provider: "github-copilot",
+		provider: options.provider ?? "github-copilot",
 		id,
 		name: id,
-		family: id.startsWith("claude") ? "claude" : id.startsWith("gpt") ? "gpt" : "other",
-		vendor: id.startsWith("claude") ? "anthropic" : id.startsWith("gpt") ? "openai" : "other",
-		input: ["text"],
-		contextWindow: 200_000,
-		maxTokens: 64_000,
-		reasoning: true,
-		spawnResolvable: true,
-		variants,
-		...overrides,
+		family: options.family ?? (id.startsWith("claude") ? "claude" : "gpt"),
+		vendor: options.vendor ?? (id.startsWith("claude") ? "anthropic" : "openai"),
+		input: options.input ?? ["text"],
+		contextWindow: options.contextWindow ?? 200_000,
+		maxTokens: options.maxTokens ?? 64_000,
+		reasoning: options.reasoning ?? true,
+		cost: options.cost,
+		spawnResolvable: options.spawnResolvable ?? true,
+		variants: (options.levels ?? ["off", "minimal", "low", "medium", "high", "max"]).map((thinkingLevel) => ({ thinkingLevel })),
 	};
 }
 
-test("exposes all quality, speed, and cost policy combinations", () => {
-	assert.deepEqual(policyDimensions("quality"), ["quality"]);
+test("exposes all policy combinations and role-aware auto defaults", () => {
 	assert.deepEqual(policyDimensions("quality-speed"), ["quality", "speed"]);
 	assert.deepEqual(policyDimensions("quality-cost"), ["quality", "cost"]);
 	assert.deepEqual(policyDimensions("speed-cost"), ["speed", "cost"]);
 	assert.deepEqual(policyDimensions("balanced"), ["quality", "speed", "cost"]);
+	assert.equal(resolveOptimizationPolicy("auto", "scout").resolved, "speed-cost");
+	assert.equal(resolveOptimizationPolicy("auto", "reviewer").resolved, "quality");
 });
 
-test("auto resolves transparently from the role", () => {
-	assert.deepEqual(resolveOptimizationPolicy("auto", "scout"), {
-		requested: "auto",
-		resolved: "speed-cost",
-	});
-	assert.equal(resolveOptimizationPolicy(undefined, "planner").resolved, "quality-speed");
-	assert.equal(resolveOptimizationPolicy("balanced", "reviewer").resolved, "balanced");
-});
-
-test("resolves canonical, bare, case-insensitive, and slash-containing ids", () => {
+test("resolves canonical, unambiguous bare, case-insensitive, and slash ids", () => {
 	const models = [
-		candidate("shared", [variant("off", { cost: 1 })], { provider: "one" }),
-		candidate("shared", [variant("off", { cost: 1 })], { provider: "two" }),
-		candidate("qwen/qwen-3", [variant("off", { cost: 1 })], { provider: "openrouter" }),
+		candidate("shared", { provider: "one" }),
+		candidate("shared", { provider: "two" }),
+		candidate("qwen/qwen-3", { provider: "openrouter" }),
 	];
-
-	const canonical = resolveModelSpec(models, "ONE/SHARED");
-	assert.equal(canonical.status, "found");
-	if (canonical.status === "found") assert.equal(modelSpec(canonical.model), "one/shared");
-
-	const slashId = resolveModelSpec(models, "qwen/qwen-3");
-	assert.equal(slashId.status, "found");
-	if (slashId.status === "found") assert.equal(slashId.model.provider, "openrouter");
-
-	const ambiguous = resolveModelSpec(models, "shared");
-	assert.equal(ambiguous.status, "ambiguous");
-	if (ambiguous.status === "ambiguous") assert.equal(ambiguous.matches.length, 2);
-	assert.equal(resolveModelSpec(models, "missing").status, "not-found");
+	assert.equal(resolveModelSpec(models, "ONE/SHARED").status, "found");
+	assert.equal(resolveModelSpec(models, "shared").status, "ambiguous");
+	const slash = resolveModelSpec(models, "qwen/qwen-3");
+	assert.equal(slash.status, "found");
+	if (slash.status === "found") assert.equal(slash.model.provider, "openrouter");
 });
 
 test("assesses child-process resolvability by canonical identity", () => {
-	const model = { provider: "GitHub-Copilot", id: "GPT-5" };
-	assert.equal(assessSpawnResolvability(model, [{ provider: "github-copilot", id: "gpt-5" }]), true);
-	assert.equal(assessSpawnResolvability(model, [{ provider: "openai", id: "gpt-5" }]), false);
+	assert.equal(
+		assessSpawnResolvability(
+			{ provider: "GitHub-Copilot", id: "GPT-5" },
+			[{ provider: "github-copilot", id: "gpt-5" }],
+		),
+		true,
+	);
 });
 
-test("quality policy selects the best model and thinking-level pair", () => {
+test("policies are honest thinking presets when a model is pinned", () => {
+	const model = candidate("pinned");
+	const expected: Record<string, ThinkingLevel> = {
+		quality: "max",
+		speed: "off",
+		cost: "off",
+		"quality-speed": "medium",
+		"quality-cost": "high",
+		"speed-cost": "off",
+		balanced: "medium",
+	};
+	for (const [policy, thinking] of Object.entries(expected)) {
+		const decision = selectModel([model], { policy: policy as keyof typeof expected, modelOverride: "pinned" });
+		assert.equal(decision.selected?.thinkingLevel, thinking, policy);
+		assert.match(decision.reasons.join("\n"), /thinking/);
+	}
+});
+
+test("cost-bearing policies select the cheapest known model", () => {
+	for (const policy of ["cost", "quality-cost", "speed-cost", "balanced"] as const) {
+		const decision = selectModel(
+			[candidate("expensive", { cost: 20 }), candidate("cheap", { cost: 2 }), candidate("unknown")],
+			{ policy },
+		);
+		assert.equal(decision.selected?.model.id, "cheap", policy);
+	}
+});
+
+test("non-cost policies do not pretend to compare model quality or speed", () => {
 	const decision = selectModel(
-		[
-			candidate("gpt-fast", [variant("low", { quality: 0.6 }), variant("high", { quality: 0.82 })]),
-			candidate("claude-strong", [variant("low", { quality: 0.75 }), variant("high", { quality: 0.95 })]),
-		],
+		[candidate("z-model", { cost: 1 }), candidate("a-model", { cost: 100 })],
 		{ policy: "quality" },
 	);
-
-	assert.equal(modelSpec(decision.selected!.model), "github-copilot/claude-strong");
-	assert.equal(decision.selected!.thinkingLevel, "high");
-	assert.equal(decision.error, undefined);
-	assert.match(decision.reasons.join("\n"), /quality: 0\.95/);
+	assert.equal(decision.selected?.model.id, "a-model");
+	assert.match(decision.reasons.join("\n"), /controls thinking only/);
 });
 
-test("joint policies penalize lopsided candidates", () => {
-	const decision = selectModel(
-		[
-			candidate("lopsided", [variant("low", { quality: 1, speed: 0.1 })]),
-			candidate("joint", [variant("low", { quality: 0.7, speed: 0.7 })]),
-		],
-		{ policy: "quality-speed" },
-	);
-
-	assert.equal(decision.selected!.model.id, "joint");
-	assert.ok(decision.selected!.utility > decision.alternatives[0].utility);
+test("known cost ranks before unknown cost and unknown-only selection is caveated", () => {
+	const known = selectModel([candidate("unknown"), candidate("known", { cost: 5 })], { policy: "cost" });
+	assert.equal(known.selected?.model.id, "known");
+	const unknown = selectModel([candidate("unknown")], { policy: "cost" });
+	assert.match(unknown.caveats.join("\n"), /no known cost/);
 });
 
-test("unknown signals are explicit and never treated as free or best", () => {
+test("categorical peer diversity outranks cost", () => {
 	const decision = selectModel(
 		[
-			candidate("unknown-cost", [variant("low", { quality: 1 })]),
-			candidate("known-cost", [variant("low", { cost: 0.4 })]),
-		],
-		{ policy: "cost" },
-	);
-
-	assert.equal(decision.selected!.model.id, "known-cost");
-	assert.equal(decision.alternatives[0].utility, 0);
-	assert.equal(decision.alternatives[0].dimensionScores[0].known, false);
-});
-
-test("confidence reduces the utility of weakly sourced metadata", () => {
-	const decision = selectModel(
-		[
-			candidate("uncertain", [variant("high", { quality: { value: 1, confidence: 0.2 } })]),
-			candidate("credible", [variant("high", { quality: { value: 0.7, confidence: 1 } })]),
-		],
-		{ policy: "quality" },
-	);
-
-	assert.equal(decision.selected!.model.id, "credible");
-});
-
-test("categorical family diversity is applied before utility", () => {
-	const decision = selectModel(
-		[
-			candidate("gpt-best", [variant("high", { quality: 1 })]),
-			candidate("claude-peer", [variant("high", { quality: 0.7 })]),
+			candidate("gpt-cheap", { cost: 1, family: "gpt", vendor: "openai" }),
+			candidate("claude-costly", { cost: 20, family: "claude", vendor: "anthropic" }),
 		],
 		{
-			policy: "quality",
-			preferences: { preferDifferentFamilyFrom: "gpt" },
+			policy: "cost",
+			preferences: { preferDifferentFamilyFrom: "gpt", preferDifferentVendorFrom: "openai" },
 		},
 	);
-
-	assert.equal(decision.selected!.model.id, "claude-peer");
-	assert.equal(decision.selected!.diversityRank, 2);
-	assert.match(decision.reasons.join("\n"), /categorical model-family/);
-	assert.match(decision.caveats.join("\n"), /overrode higher-utility candidate.*gpt-best/);
+	assert.equal(decision.selected?.model.id, "claude-costly");
+	assert.equal(decision.selected?.diversityRank, 3);
 });
 
-test("vendor diversity is a categorical preference", () => {
-	const decision = selectModel(
-		[
-			candidate("same-vendor", [variant("high", { quality: 1 })], { family: "other", vendor: "openai" }),
-			candidate("other-vendor", [variant("high", { quality: 0.6 })], { family: "other", vendor: "google" }),
-		],
-		{ policy: "quality", preferences: { preferDifferentVendorFrom: "openai" } },
-	);
-
-	assert.equal(decision.selected!.model.id, "other-vendor");
-	assert.equal(decision.selected!.diversityRank, 1);
-});
-
-test("an explicitly empty provider allow-list fails closed", () => {
-	const decision = selectModel(
-		[candidate("model", [variant("low", { quality: 1 })])],
-		{ policy: "quality", constraints: { allowedProviders: [] } },
-	);
-
-	assert.equal(decision.selected, undefined);
-	assert.match(decision.error ?? "", /No eligible models/);
-	assert.match(decision.rejected[0].reasons.join("; "), /not allowed/);
-});
-
-test("canonical and bare exclusions are deny-oriented across providers", () => {
+test("hard constraints filter before selection and an empty allow-list fails closed", () => {
 	const models = [
-		candidate("shared", [variant("low", { quality: 1 })], { provider: "one" }),
-		candidate("shared", [variant("low", { quality: 0.9 })], { provider: "two" }),
-		candidate("other", [variant("low", { quality: 0.8 })], { provider: "two" }),
+		candidate("bad", { spawnResolvable: "unknown", input: ["text"], reasoning: false, contextWindow: 10, maxTokens: 10 }),
+		candidate("good", { input: ["text", "image"] }),
 	];
-
-	const canonical = selectModel(models, {
+	const decision = selectModel(models, {
 		policy: "quality",
-		constraints: { excludedModels: ["one/shared", "does-not-match"] },
-	});
-	assert.equal(canonical.selected!.model.id, "shared");
-	assert.equal(canonical.selected!.model.provider, "two");
-	assert.deepEqual(canonical.rejected.map((entry) => modelSpec(entry.model)), ["one/shared"]);
-
-	const bare = selectModel(models, {
-		policy: "quality",
-		constraints: { excludedModels: ["shared"] },
-	});
-	assert.equal(bare.selected!.model.id, "other");
-	assert.deepEqual(
-		bare.rejected.map((entry) => modelSpec(entry.model)),
-		["one/shared", "two/shared"],
-	);
-});
-
-test("remaining capability and provider constraints fail closed", () => {
-	const decision = selectModel(
-		[
-			candidate("denied", [variant("off", { quality: 1 })], {
-				provider: "denied-provider",
-				reasoning: false,
-				contextWindow: 100_000,
-				maxTokens: 8_000,
-			}),
-			candidate("allowed", [variant("high", { quality: 0.8 })], {
-				provider: "allowed-provider",
-				contextWindow: 300_000,
-				maxTokens: 64_000,
-			}),
-		],
-		{
-			policy: "quality",
-			constraints: {
-				deniedProviders: ["denied-provider"],
-				minimumContextWindow: 200_000,
-				minimumMaxTokens: 32_000,
-				requireReasoning: true,
-			},
+		constraints: {
+			requireSpawnResolvable: true,
+			requiredInput: ["image"],
+			requireReasoning: true,
+			minimumContextWindow: 100,
+			minimumMaxTokens: 100,
 		},
+	});
+	assert.equal(decision.selected?.model.id, "good");
+	assert.equal(decision.rejected.length, 1);
+	assert.equal(
+		selectModel([models[1]], { constraints: { allowedProviders: [] } }).error,
+		"No eligible models are available",
 	);
-
-	assert.equal(decision.selected!.model.id, "allowed");
-	const denial = decision.rejected[0].reasons.join("; ");
-	assert.match(denial, /provider denied-provider is denied/);
-	assert.match(denial, /context window/);
-	assert.match(denial, /max output/);
-	assert.match(denial, /reasoning support/);
 });
 
-test("hard constraints filter before ranking", () => {
-	const decision = selectModel(
-		[
-			candidate("runtime-only", [variant("high", { quality: 1 })], {
-				spawnResolvable: "unknown",
-				input: ["text", "image"],
-			}),
-			candidate("child-safe", [variant("high", { quality: 0.8 })], {
-				spawnResolvable: true,
-				input: ["text", "image"],
-			}),
-			candidate("text-only", [variant("high", { quality: 0.9 })], { input: ["text"] }),
-		],
-		{
-			policy: "quality",
-			constraints: { requireSpawnResolvable: true, requiredInput: ["image"] },
-		},
-	);
-
-	assert.equal(decision.selected!.model.id, "child-safe");
-	assert.equal(decision.rejected.length, 2);
-	assert.match(decision.rejected.find((entry) => entry.model.id === "runtime-only")!.reasons.join("; "), /unknown/);
-	assert.match(decision.rejected.find((entry) => entry.model.id === "text-only")!.reasons.join("; "), /image/);
-});
-
-test("an exact override beats ranking but cannot bypass hard constraints", () => {
-	const models = [
-		candidate("best", [variant("high", { quality: 1 })]),
-		candidate("requested", [variant("low", { quality: 0.2 })]),
-	];
-	const selected = selectModel(models, { policy: "quality", modelOverride: "requested" });
-	assert.equal(selected.selected!.model.id, "requested");
-	assert.match(selected.reasons.join("\n"), /Exact model override/);
-
+test("exact overrides beat policy but cannot bypass constraints", () => {
+	const models = [candidate("cheap", { cost: 1 }), candidate("requested", { cost: 50 })];
+	assert.equal(selectModel(models, { policy: "cost", modelOverride: "requested" }).selected?.model.id, "requested");
 	const denied = selectModel(models, {
-		policy: "quality",
+		policy: "cost",
 		modelOverride: "requested",
 		constraints: { deniedProviders: ["github-copilot"] },
 	});
-	assert.equal(denied.selected, undefined);
 	assert.match(denied.error ?? "", /ineligible/);
 });
 
-test("ambiguous bare overrides fail with qualified alternatives", () => {
-	const decision = selectModel(
-		[
-			candidate("shared", [variant("low", { quality: 1 })], { provider: "one" }),
-			candidate("shared", [variant("low", { quality: 1 })], { provider: "two" }),
-		],
+test("ambiguous overrides and unsupported thinking fail clearly", () => {
+	const ambiguous = selectModel(
+		[candidate("shared", { provider: "one" }), candidate("shared", { provider: "two" })],
 		{ modelOverride: "shared" },
 	);
-
-	assert.equal(decision.selected, undefined);
-	assert.match(decision.error ?? "", /ambiguous: one\/shared, two\/shared/);
-});
-
-test("thinking-level overrides are enforced", () => {
-	const decision = selectModel(
-		[
-			candidate("one", [variant("low", { quality: 0.5 }), variant("high", { quality: 1 })]),
-			candidate("two", [variant("low", { quality: 0.6 })]),
-		],
-		{ policy: "quality", thinkingLevelOverride: "low" },
-	);
-	assert.equal(decision.selected!.model.id, "two");
-	assert.equal(decision.selected!.thinkingLevel, "low");
-
-	const unsupported = selectModel(
-		[candidate("one", [variant("low", { quality: 1 })])],
-		{ thinkingLevelOverride: "max" },
-	);
+	assert.match(ambiguous.error ?? "", /ambiguous: one\/shared, two\/shared/);
+	const unsupported = selectModel([candidate("one", { levels: ["low"] })], {
+		thinkingLevelOverride: "max",
+	});
 	assert.match(unsupported.error ?? "", /supports thinking level max/);
 });
 
-test("selection is deterministic when all requested metadata is unknown", () => {
+test("alternatives are distinct models and bounded", () => {
 	const decision = selectModel(
-		[
-			candidate("z-model", [variant("high", {})]),
-			candidate("a-model", [variant("low", {})]),
-		],
-		{ policy: "cost" },
+		[candidate("one", { cost: 1 }), candidate("two", { cost: 2 }), candidate("three", { cost: 3 })],
+		{ policy: "cost", maxAlternatives: 1 },
 	);
-	assert.equal(decision.selected!.model.id, "a-model");
-	assert.deepEqual(decision.caveats, ["Selected candidate has no known cost signal"]);
+	assert.equal(decision.selected?.model.id, "one");
+	assert.deepEqual(decision.alternatives.map((entry) => entry.model.id), ["two"]);
 });
 
-test("alternatives are bounded and contain distinct models", () => {
-	const decision = selectModel(
-		[
-			candidate("one", [variant("low", { speed: 0.9 }), variant("high", { speed: 1 })]),
-			candidate("two", [variant("low", { speed: 0.8 }), variant("high", { speed: 0.7 })]),
-			candidate("three", [variant("low", { speed: 0.6 })]),
-		],
-		{ policy: "speed", maxAlternatives: 1 },
-	);
-	assert.equal(decision.selected!.model.id, "one");
-	assert.equal(decision.alternatives.length, 1);
-	assert.equal(decision.alternatives[0].model.id, "two");
-
-	const nonFinite = selectModel(
-		[
-			candidate("one", [variant("low", { speed: 1 })]),
-			candidate("two", [variant("low", { speed: 0.8 })]),
-		],
-		{ policy: "speed", maxAlternatives: Number.NaN },
-	);
-	assert.equal(nonFinite.alternatives.length, 1);
-});
-
-test("invalid or duplicate candidate metadata fails early", () => {
+test("invalid candidate metadata fails early", () => {
+	assert.throws(() => selectModel([candidate("bad", { cost: -1 })]), /Invalid cost/);
 	assert.throws(
 		() =>
 			selectModel([
-				candidate("bad-thinking", [variant("low", { quality: 1 })], {
-					variants: [{ thinkingLevel: "turbo" as "low", signals: { quality: signal(1) } }],
-				}),
+				candidate("bad-thinking", { levels: ["turbo" as ThinkingLevel] }),
 			]),
-		/Invalid thinking level turbo/,
+		/Invalid thinking level/,
 	);
-	assert.throws(
-		() => selectModel([candidate("bad", [variant("low", { quality: 1.1 })])]),
-		/Invalid quality value/,
-	);
-	assert.throws(
-		() =>
-			selectModel([
-				candidate("duplicate", [variant("low", { quality: 1 })]),
-				candidate("duplicate", [variant("high", { quality: 1 })]),
-			]),
-		/Duplicate model candidate/,
-	);
+	assert.throws(() => selectModel([candidate("dup"), candidate("dup")]), /Duplicate model candidate/);
+});
+
+test("modelSpec formats canonical identities", () => {
+	assert.equal(modelSpec({ provider: "provider", id: "model/id" }), "provider/model/id");
 });

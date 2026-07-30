@@ -1,11 +1,9 @@
 import {
 	THINKING_LEVELS,
 	assessSpawnResolvability,
-	type CandidateVariant,
 	type ModelCandidate,
 	type ModelIdentity,
 	type ThinkingLevel,
-	type UtilitySignal,
 } from "./index.ts";
 
 export interface PiModelLike extends ModelIdentity {
@@ -21,9 +19,6 @@ export interface PiModelLike extends ModelIdentity {
 		cacheWrite: number;
 	};
 }
-
-const PI_PRICE_CONFIDENCE = 0.55;
-const THINKING_PRIOR_CONFIDENCE = 0.2;
 
 function normalized(value: string): string {
 	return value.trim().toLowerCase();
@@ -43,10 +38,10 @@ export function inferModelFamilyVendor(
 	if (/\b(kimi|moonshot)\b/.test(value)) return { family: "kimi", vendor: "moonshotai" };
 	if (/\b(minimax)\b/.test(value)) return { family: "minimax", vendor: "minimax" };
 	if (/\b(glm|zai|z\.ai)\b/.test(value)) return { family: "glm", vendor: "zai" };
+	if (/\b(mai-code|mai)\b/.test(value)) return { family: "mai", vendor: "microsoft" };
 	return { family: normalized(model.id).split(/[/:]/, 1)[0] || "other", vendor: normalized(model.provider) };
 }
 
-/** Mirror Pi's documented thinking-map semantics without coupling pure tests to a Pi installation. */
 export function getSupportedThinkingLevels(model: PiModelLike): ThinkingLevel[] {
 	if (!model.reasoning) return ["off"];
 	return THINKING_LEVELS.filter((level) => {
@@ -57,67 +52,27 @@ export function getSupportedThinkingLevels(model: PiModelLike): ThinkingLevel[] 
 	});
 }
 
-function signal(value: number, confidence: number, source: string): UtilitySignal {
-	return { value: Math.max(0, Math.min(1, value)), confidence, provenance: { source } };
-}
-
 function positiveReferenceRate(model: PiModelLike): number | undefined {
 	if (!model.cost) return undefined;
 	const rate = model.cost.input + model.cost.output;
 	return Number.isFinite(rate) && rate > 0 ? rate : undefined;
 }
 
-function effort(level: ThinkingLevel): number {
-	const index = THINKING_LEVELS.indexOf(level);
-	return index < 0 ? 0 : index / (THINKING_LEVELS.length - 1);
-}
-
-function buildVariant(
-	level: ThinkingLevel,
-	baseCostUtility: number | undefined,
-): CandidateVariant {
-	const thinkingEffort = effort(level);
-	const signals: CandidateVariant["signals"] = {
-		// These are deliberately weak priors about the selected effort, not claims
-		// about one model family being intrinsically better or faster than another.
-		quality: signal(0.45 + 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, "pi-thinking-effort-prior"),
-		speed: signal(1 - 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, "pi-thinking-effort-prior"),
-	};
-	if (baseCostUtility !== undefined) {
-		// Higher thinking generally consumes more output tokens. This bounded prior
-		// keeps the catalog's route price dominant while distinguishing variants.
-		signals.cost = signal(
-			baseCostUtility * (1 - 0.3 * thinkingEffort),
-			PI_PRICE_CONFIDENCE,
-			"pi-catalog-base-rates+thinking-effort-prior",
-		);
-	}
-	return { thinkingLevel: level, signals };
-}
-
 export function adaptPiModels(
 	models: readonly PiModelLike[],
 	childCatalog: readonly ModelIdentity[] | undefined,
 ): ModelCandidate[] {
-	const rates = models.map(positiveReferenceRate).filter((rate): rate is number => rate !== undefined);
-	const cheapestRate = rates.length > 0 ? Math.min(...rates) : undefined;
-
-	return models.map((model) => {
-		const identity = inferModelFamilyVendor(model);
-		const rate = positiveReferenceRate(model);
-		const baseCostUtility = rate !== undefined && cheapestRate !== undefined ? cheapestRate / rate : undefined;
-		return {
-			provider: model.provider,
-			id: model.id,
-			name: model.name,
-			...identity,
-			input: [...model.input],
-			contextWindow: model.contextWindow,
-			maxTokens: model.maxTokens,
-			reasoning: model.reasoning,
-			spawnResolvable:
-				childCatalog === undefined ? "unknown" : assessSpawnResolvability(model, childCatalog),
-			variants: getSupportedThinkingLevels(model).map((level) => buildVariant(level, baseCostUtility)),
-		};
-	});
+	return models.map((model) => ({
+		provider: model.provider,
+		id: model.id,
+		name: model.name,
+		...inferModelFamilyVendor(model),
+		input: [...model.input],
+		contextWindow: model.contextWindow,
+		maxTokens: model.maxTokens,
+		reasoning: model.reasoning,
+		cost: positiveReferenceRate(model),
+		spawnResolvable: childCatalog === undefined ? "unknown" : assessSpawnResolvability(model, childCatalog),
+		variants: getSupportedThinkingLevels(model).map((thinkingLevel) => ({ thinkingLevel })),
+	}));
 }

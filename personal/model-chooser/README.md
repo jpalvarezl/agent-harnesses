@@ -1,68 +1,49 @@
-# Model Chooser Core
+# Model Chooser
 
-Pure, deterministic selection primitives shared by the personal subagent and peer-agent extensions.
+Small deterministic helpers shared by the personal subagent and peer-agent extensions. This directory is **not a Pi extension** and should not be added to `settings.json`.
 
-This directory is **not a Pi extension** and should not be added to `settings.json`. Runtime integrations will import it directly.
+## What it does
 
-## Scope
+- Resolves canonical `provider/id` model references and rejects ambiguous bare IDs.
+- Confirms a model exists in a fresh child Pi runtime before dispatch.
+- Preserves exact task/session/frontmatter model pins.
+- Selects the cheapest known child-resolvable model for cost-bearing policies.
+- Selects a supported thinking-level preset for all policies.
+- Prefers another coarse model family/vendor for independent peer agents.
+- Keeps legacy behavior when chooser fields are omitted.
 
-The core defines the contract and ranking behavior. Phase 2 adds an opt-in Pi adapter used by the subagent and peer-agent extensions while preserving their legacy behavior when chooser fields are omitted:
+## Honest policy semantics
 
-- Optimization policies: `auto`, `quality`, `speed`, `cost`, `quality-speed`, `quality-cost`, `speed-cost`, and `balanced`.
-- Transparent role defaults for `auto`.
-- Separate hard constraints and soft optimization preferences.
-- Canonical `provider/id` matching with ambiguous bare-ID rejection. A bare ID in the deny-oriented `excludedModels` constraint intentionally excludes that ID from every provider.
-- Model/thinking-level pair selection. Reported alternatives are distinct models, each at its best-ranked thinking level.
-- Confidence-adjusted quality, speed, and cost signals with provenance.
-- Explicit handling of unknown signals.
-- Categorical family/vendor diversity preferences for independent peers.
-- Child-process resolvability as an eligibility constraint.
-- Explainable decisions with alternatives, caveats, and rejection reasons.
+Quality and speed are **thinking presets**, not cross-model measurements. The chooser has no benchmark quality or observed latency data and does not pretend otherwise.
 
-## Signal contract
+| Policy | Model behavior | Thinking preset |
+|---|---|---|
+| `quality` | inherited/pinned | highest supported |
+| `speed` | inherited/pinned | lowest supported |
+| `cost` | cheapest known | lowest supported |
+| `quality-speed` | inherited/pinned | middle |
+| `quality-cost` | cheapest known | high |
+| `speed-cost` | cheapest known | lowest |
+| `balanced` | cheapest known | middle |
+| `auto` | resolves to a role policy | that policy's preset |
 
-Every utility signal is normalized to `[0, 1]`, where higher is better:
+`auto` maps scout → `speed-cost`, planner → `quality-speed`, worker/generic → `balanced`, and reviewer/code-review/rubber-duck → `quality`.
 
-- `quality: 1` means highest expected task quality.
-- `speed: 1` means fastest expected completion.
-- `cost: 1` means most economical expected execution.
+Cost is Pi's positive input + output list-price reference rate. Missing/all-zero pricing is unknown, not free. For subscription providers this may not represent actual credits or billing.
 
-A signal also includes confidence in `[0, 1]` and provenance. Ranking uses `value * confidence`. Missing signals are unknown—not zero-priced, free, fast, or high-quality—and are conservatively assigned zero effective utility with an explicit caveat.
+Peer family/vendor diversity is categorical and outranks cost because independence is the purpose of rubber-duck and review agents.
 
-Multi-dimensional policies use the geometric mean of their confidence-adjusted utilities. This treats the dimensions as joint objectives and prevents one excellent dimension from fully masking a poor or unknown one.
+## Tool compatibility
 
-## Auto defaults
+Strict-tool enums use sentinel-first defaults:
 
-| Role | Resolved policy |
-|---|---|
-| Generic | `balanced` |
-| Scout | `speed-cost` |
-| Planner | `quality-speed` |
-| Worker | `balanced` |
-| Reviewer | `quality` |
-| Code review | `quality` |
-| Rubber duck | `quality` |
+- `policy: "legacy"` preserves existing behavior.
+- `thinkingLevel: "auto"` lets the chooser select the preset.
 
-Rubber-duck independence is represented separately as a categorical family/vendor preference, evaluated before utility ranking. This preference can deliberately override a higher-utility same-family candidate; the decision reports that tradeoff as a caveat.
+Top-level policy/thinking values default parallel and chain items; item values override them.
 
 ## Tests
 
-The repository currently runs TypeScript tests directly with Node 24:
-
 ```bash
-node --test personal/model-chooser/index.test.ts
+node --test personal/model-chooser/*.test.ts
 ```
-
-## Pi adapter and Phase 2 integration
-
-`pi-adapter.ts` converts Pi's authenticated catalog into candidates, derives supported thinking variants, infers broad family/vendor identities, and compares parent models with a memoized fresh child `ModelRuntime` catalog. Chooser-enabled child calls require confirmed child resolvability; unknown or runtime-only entries fail closed. The extension-free catalog exactly matches peer children (`--no-extensions`) and is intentionally conservative for subagent children that may load provider extensions.
-
-Initial signals are deliberately limited:
-
-- Cost uses normalized positive Pi catalog input + output rates. All-zero/default pricing is unknown, not free.
-- Quality and speed use low-confidence thinking-effort priors to distinguish reasoning levels; they do not claim that one model family is intrinsically better or faster.
-- Higher thinking receives a quality prior and lower speed/cost priors.
-
-The subagent and peer-agent extensions expose `policy`, `thinkingLevel`, and exact `model` fields. Their strict-tool enums use sentinel-first defaults: `policy: "legacy"` preserves existing behavior and `thinkingLevel: "auto"` lets the chooser decide. This prevents strict callers that materialize optional fields from accidentally opting into the first optimization policy or forcing thinking off. The eight optimization policies remain `auto`, the three single dimensions, three two-way combinations, and `balanced`.
-
-External metadata, benchmark quality, observed latency, user constraints, and shadow evaluation remain later phases.
