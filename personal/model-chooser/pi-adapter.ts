@@ -2,14 +2,11 @@ import {
 	THINKING_LEVELS,
 	assessSpawnResolvability,
 	type CandidateVariant,
-	type MetadataAttribution,
 	type ModelCandidate,
 	type ModelIdentity,
-	type SignalProvenance,
 	type ThinkingLevel,
 	type UtilitySignal,
 } from "./index.ts";
-import { lookupModelsDevMetadata, type ModelsDevEnrichment, type ModelsDevSnapshot } from "./models-dev.ts";
 
 export interface PiModelLike extends ModelIdentity {
 	reasoning: boolean;
@@ -25,27 +22,8 @@ export interface PiModelLike extends ModelIdentity {
 	};
 }
 
-export interface PiAdapterOptions {
-	modelsDev?: ModelsDevSnapshot;
-	now?: Date;
-}
-
-interface CostBasis {
-	rate: number;
-	confidence: number;
-	provenance: SignalProvenance;
-}
-
-interface PreparedModel {
-	model: PiModelLike;
-	enrichment?: ModelsDevEnrichment;
-	cost?: CostBasis;
-}
-
 const PI_PRICE_CONFIDENCE = 0.55;
-const MODELS_DEV_PRICE_CONFIDENCE = { fresh: 0.45, stale: 0.3 } as const;
 const THINKING_PRIOR_CONFIDENCE = 0.2;
-const HEURISTIC_IDENTITY_CONFIDENCE = 0.45;
 
 function normalized(value: string): string {
 	return value.trim().toLowerCase();
@@ -79,41 +57,14 @@ export function getSupportedThinkingLevels(model: PiModelLike): ThinkingLevel[] 
 	});
 }
 
-function signal(
-	value: number,
-	confidence: number,
-	provenance: SignalProvenance,
-): UtilitySignal {
-	return { value: Math.max(0, Math.min(1, value)), confidence, provenance };
+function signal(value: number, confidence: number, source: string): UtilitySignal {
+	return { value: Math.max(0, Math.min(1, value)), confidence, provenance: { source } };
 }
 
-function positivePiReferenceRate(model: PiModelLike): number | undefined {
+function positiveReferenceRate(model: PiModelLike): number | undefined {
 	if (!model.cost) return undefined;
 	const rate = model.cost.input + model.cost.output;
 	return Number.isFinite(rate) && rate > 0 ? rate : undefined;
-}
-
-function resolveCostBasis(model: PiModelLike, enrichment: ModelsDevEnrichment | undefined): CostBasis | undefined {
-	const piRate = positivePiReferenceRate(model);
-	if (piRate !== undefined) {
-		return {
-			rate: piRate,
-			confidence: PI_PRICE_CONFIDENCE,
-			provenance: {
-				source: "pi-catalog-base-rates",
-				detail: "Input + output route list-price proxy; may not match subscription credits or premium requests",
-			},
-		};
-	}
-	if (!enrichment?.cost || !enrichment.costProvenance) return undefined;
-	const rate = enrichment.cost.input + enrichment.cost.output;
-	if (!Number.isFinite(rate) || rate <= 0) return undefined;
-	const freshness = enrichment.costProvenance.freshness ?? "stale";
-	return {
-		rate,
-		confidence: MODELS_DEV_PRICE_CONFIDENCE[freshness],
-		provenance: { ...enrichment.costProvenance },
-	};
 }
 
 function effort(level: ThinkingLevel): number {
@@ -121,108 +72,52 @@ function effort(level: ThinkingLevel): number {
 	return index < 0 ? 0 : index / (THINKING_LEVELS.length - 1);
 }
 
-function buildVariant(level: ThinkingLevel, cost: (CostBasis & { utility: number }) | undefined): CandidateVariant {
+function buildVariant(
+	level: ThinkingLevel,
+	baseCostUtility: number | undefined,
+): CandidateVariant {
 	const thinkingEffort = effort(level);
 	const signals: CandidateVariant["signals"] = {
 		// These are deliberately weak priors about the selected effort, not claims
 		// about one model family being intrinsically better or faster than another.
-		quality: signal(0.45 + 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, {
-			source: "pi-thinking-effort-prior",
-		}),
-		speed: signal(1 - 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, {
-			source: "pi-thinking-effort-prior",
-		}),
+		quality: signal(0.45 + 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, "pi-thinking-effort-prior"),
+		speed: signal(1 - 0.55 * thinkingEffort, THINKING_PRIOR_CONFIDENCE, "pi-thinking-effort-prior"),
 	};
-	if (cost) {
+	if (baseCostUtility !== undefined) {
 		// Higher thinking generally consumes more output tokens. This bounded prior
-		// keeps the route price dominant while distinguishing variants.
-		signals.cost = signal(cost.utility * (1 - 0.3 * thinkingEffort), cost.confidence, {
-			...cost.provenance,
-			detail: `${cost.provenance.detail ?? "Reference route rate"}; adjusted by thinking-effort prior`,
-		});
+		// keeps the catalog's route price dominant while distinguishing variants.
+		signals.cost = signal(
+			baseCostUtility * (1 - 0.3 * thinkingEffort),
+			PI_PRICE_CONFIDENCE,
+			"pi-catalog-base-rates+thinking-effort-prior",
+		);
 	}
 	return { thinkingLevel: level, signals };
-}
-
-function heuristicAttribution(field: "family" | "vendor"): MetadataAttribution {
-	return {
-		confidence: HEURISTIC_IDENTITY_CONFIDENCE,
-		provenance: { source: "model-id-heuristic", detail: `${field} inferred from model/provider naming` },
-	};
-}
-
-function enrichedCoarseFamily(vendor: string | undefined, modelFamily: string | undefined): string | undefined {
-	const value = `${vendor ?? ""} ${modelFamily ?? ""}`.toLowerCase();
-	if (/\b(anthropic|claude)\b/.test(value)) return "claude";
-	if (/\b(openai|gpt|codex)\b/.test(value)) return "gpt";
-	if (/\b(google|gemini|gemma)\b/.test(value)) return "gemini";
-	if (/\b(microsoft|mai)\b/.test(value)) return "mai";
-	if (/\b(alibaba|qwen|qwq)\b/.test(value)) return "qwen";
-	if (/\b(deepseek)\b/.test(value)) return "deepseek";
-	if (/\b(xai|grok)\b/.test(value)) return "grok";
-	if (/\b(mistral|codestral|ministral)\b/.test(value)) return "mistral";
-	if (/\b(moonshotai|kimi)\b/.test(value)) return "kimi";
-	if (/\b(minimax)\b/.test(value)) return "minimax";
-	if (/\b(zai|glm)\b/.test(value)) return "glm";
-	return undefined;
-}
-
-function coarseFamilyAttribution(
-	enrichment: ModelsDevEnrichment | undefined,
-	vendor: string | undefined,
-): MetadataAttribution | undefined {
-	const source = enrichment?.identityMetadata?.vendor ?? enrichment?.identityMetadata?.family;
-	if (!source) return undefined;
-	return {
-		confidence: source.confidence,
-		provenance: {
-			...source.provenance,
-			detail: `coarse independence family derived from ${vendor ? `canonical vendor ${vendor}` : `model family ${enrichment?.family}`}`,
-		},
-	};
 }
 
 export function adaptPiModels(
 	models: readonly PiModelLike[],
 	childCatalog: readonly ModelIdentity[] | undefined,
-	options: PiAdapterOptions = {},
 ): ModelCandidate[] {
-	const now = options.now ?? new Date();
-	const prepared: PreparedModel[] = models.map((model) => {
-		const enrichment = lookupModelsDevMetadata(options.modelsDev, model, now);
-		return { model, enrichment, cost: resolveCostBasis(model, enrichment) };
-	});
-	// Pi and models.dev rates are both USD per million tokens (input + output),
-	// so they can share one normalization pool. Do not add other billing units.
-	const knownRates = prepared.map((entry) => entry.cost?.rate).filter((rate): rate is number => rate !== undefined);
-	const cheapestRate = knownRates.length > 0 ? Math.min(...knownRates) : undefined;
+	const rates = models.map(positiveReferenceRate).filter((rate): rate is number => rate !== undefined);
+	const cheapestRate = rates.length > 0 ? Math.min(...rates) : undefined;
 
-	return prepared.map(({ model, enrichment, cost }) => {
-		const heuristic = inferModelFamilyVendor(model);
-		const vendor = enrichment?.vendor ?? heuristic.vendor;
-		const metadataCoarseFamily = enrichedCoarseFamily(enrichment?.vendor, enrichment?.family);
-		const family = metadataCoarseFamily ?? heuristic.family;
-		const normalizedCost = cost && cheapestRate !== undefined ? { ...cost, utility: cheapestRate / cost.rate } : undefined;
+	return models.map((model) => {
+		const identity = inferModelFamilyVendor(model);
+		const rate = positiveReferenceRate(model);
+		const baseCostUtility = rate !== undefined && cheapestRate !== undefined ? cheapestRate / rate : undefined;
 		return {
 			provider: model.provider,
 			id: model.id,
 			name: model.name,
-			family,
-			modelFamily: enrichment?.family,
-			vendor,
-			identityMetadata: {
-				family:
-					(metadataCoarseFamily ? coarseFamilyAttribution(enrichment, enrichment?.vendor) : undefined) ??
-					(family ? heuristicAttribution("family") : undefined),
-				modelFamily: enrichment?.identityMetadata?.family,
-				vendor: enrichment?.identityMetadata?.vendor ?? (vendor ? heuristicAttribution("vendor") : undefined),
-			},
+			...identity,
 			input: [...model.input],
 			contextWindow: model.contextWindow,
 			maxTokens: model.maxTokens,
 			reasoning: model.reasoning,
-			spawnResolvable: childCatalog === undefined ? "unknown" : assessSpawnResolvability(model, childCatalog),
-			variants: getSupportedThinkingLevels(model).map((level) => buildVariant(level, normalizedCost)),
+			spawnResolvable:
+				childCatalog === undefined ? "unknown" : assessSpawnResolvability(model, childCatalog),
+			variants: getSupportedThinkingLevels(model).map((level) => buildVariant(level, baseCostUtility)),
 		};
 	});
 }

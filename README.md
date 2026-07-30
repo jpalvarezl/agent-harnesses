@@ -230,14 +230,10 @@ Use a quality-cost policy for the next independent code review.
 ```
 
 ### `model-dynamics`
-Dynamic GitHub Copilot model selector. Registers `/model_cur`, which queries your authenticated Copilot account for the models currently available and lets you pick and persist one — useful when Copilot exposes a model before it appears in pi's generated model catalog. It also coordinates cached models.dev metadata refreshes for the model chooser.
+Dynamic GitHub Copilot model selector. Registers `/model_cur`, which queries your authenticated Copilot account for the models currently available and lets you pick and persist one — useful when Copilot exposes a model before it appears in pi's generated model catalog.
 ```text
 /model_cur
-/model-metadata status
-/model-metadata refresh
 ```
-
-The metadata cache is projected to the fields the chooser needs, refreshed with ETags outside tool execution, retained stale on failures, and never fetched when `PI_OFFLINE` is enabled.
 
 ## Notes
 - Skills can also be triggered implicitly by natural language requests.
