@@ -1,6 +1,3 @@
-export const OPTIMIZATION_DIMENSIONS = ["quality", "speed", "cost"] as const;
-export type OptimizationDimension = (typeof OPTIMIZATION_DIMENSIONS)[number];
-
 export const OPTIMIZATION_POLICIES = [
 	"auto",
 	"quality",
@@ -34,10 +31,6 @@ export interface CandidateVariant {
 }
 
 export interface ModelCandidate extends ModelIdentity {
-	input: readonly ("text" | "image")[];
-	contextWindow: number;
-	maxTokens: number;
-	reasoning: boolean;
 	/** Input + output list-price reference rate; absent means unknown. */
 	cost?: number;
 	spawnResolvable: SpawnResolvable;
@@ -45,12 +38,6 @@ export interface ModelCandidate extends ModelIdentity {
 }
 
 export interface SelectionConstraints {
-	allowedProviders?: readonly string[];
-	deniedProviders?: readonly string[];
-	requiredInput?: readonly ("text" | "image")[];
-	minimumContextWindow?: number;
-	minimumMaxTokens?: number;
-	requireReasoning?: boolean;
 	requireSpawnResolvable?: boolean;
 	excludedModels?: readonly string[];
 }
@@ -67,7 +54,6 @@ export interface SelectionRequest {
 	preferences?: SelectionPreferences;
 	modelOverride?: string;
 	thinkingLevelOverride?: ThinkingLevel;
-	maxAlternatives?: number;
 }
 
 export interface RejectedCandidate {
@@ -79,14 +65,12 @@ export interface RankedCandidate {
 	model: ModelCandidate;
 	thinkingLevel: ThinkingLevel;
 	diversityRank: number;
-	cost?: number;
 }
 
 export interface SelectionDecision {
 	requestedPolicy: OptimizationPolicy;
 	resolvedPolicy: ResolvedOptimizationPolicy;
 	selected?: RankedCandidate;
-	alternatives: RankedCandidate[];
 	reasons: string[];
 	caveats: string[];
 	rejected: RejectedCandidate[];
@@ -108,15 +92,7 @@ export const AUTO_POLICY_BY_ROLE: Readonly<Record<ChooserRole, ResolvedOptimizat
 	"rubber-duck": "quality",
 };
 
-const POLICY_DIMENSIONS: Readonly<Record<ResolvedOptimizationPolicy, readonly OptimizationDimension[]>> = {
-	quality: ["quality"],
-	speed: ["speed"],
-	cost: ["cost"],
-	"quality-speed": ["quality", "speed"],
-	"quality-cost": ["quality", "cost"],
-	"speed-cost": ["speed", "cost"],
-	balanced: ["quality", "speed", "cost"],
-};
+const COST_POLICIES = new Set<ResolvedOptimizationPolicy>(["cost", "quality-cost", "speed-cost", "balanced"]);
 
 /** Transparent thinking presets; quality/speed are not cross-model measurements. */
 const POLICY_THINKING_TARGET: Readonly<Record<ResolvedOptimizationPolicy, ThinkingLevel>> = {
@@ -145,8 +121,8 @@ export function resolveOptimizationPolicy(
 	return { requested, resolved: requested === "auto" ? AUTO_POLICY_BY_ROLE[role ?? "generic"] : requested };
 }
 
-export function policyDimensions(policy: ResolvedOptimizationPolicy): readonly OptimizationDimension[] {
-	return POLICY_DIMENSIONS[policy];
+export function policyUsesCost(policy: ResolvedOptimizationPolicy): boolean {
+	return COST_POLICIES.has(policy);
 }
 
 export function resolveModelSpec<T extends ModelIdentity>(models: readonly T[], requested: string): ModelResolution<T> {
@@ -174,10 +150,6 @@ function validateCandidates(candidates: readonly ModelCandidate[]): void {
 		if (identities.has(spec)) throw new Error(`Duplicate model candidate: ${modelSpec(candidate)}`);
 		identities.add(spec);
 		if (!candidate.provider.trim() || !candidate.id.trim()) throw new Error("Model provider and id must be non-empty");
-		if (!Number.isFinite(candidate.contextWindow) || candidate.contextWindow <= 0)
-			throw new Error(`Invalid context window for ${modelSpec(candidate)}`);
-		if (!Number.isFinite(candidate.maxTokens) || candidate.maxTokens <= 0)
-			throw new Error(`Invalid max tokens for ${modelSpec(candidate)}`);
 		if (candidate.cost !== undefined && (!Number.isFinite(candidate.cost) || candidate.cost <= 0))
 			throw new Error(`Invalid cost for ${modelSpec(candidate)}`);
 		if (candidate.variants.length === 0) throw new Error(`No thinking variants for ${modelSpec(candidate)}`);
@@ -191,22 +163,8 @@ function validateCandidates(candidates: readonly ModelCandidate[]): void {
 	}
 }
 
-function containsNormalized(values: readonly string[] | undefined, value: string): boolean {
-	return values?.some((candidate) => normalize(candidate) === normalize(value)) ?? false;
-}
-
 function rejectionReasons(candidate: ModelCandidate, constraints: SelectionConstraints): string[] {
 	const reasons: string[] = [];
-	if (constraints.allowedProviders !== undefined && !containsNormalized(constraints.allowedProviders, candidate.provider))
-		reasons.push(`provider ${candidate.provider} is not allowed`);
-	if (containsNormalized(constraints.deniedProviders, candidate.provider)) reasons.push(`provider ${candidate.provider} is denied`);
-	const missingInputs = constraints.requiredInput?.filter((input) => !candidate.input.includes(input)) ?? [];
-	if (missingInputs.length) reasons.push(`missing required input: ${missingInputs.join(", ")}`);
-	if (constraints.minimumContextWindow !== undefined && candidate.contextWindow < constraints.minimumContextWindow)
-		reasons.push(`context window ${candidate.contextWindow} is below ${constraints.minimumContextWindow}`);
-	if (constraints.minimumMaxTokens !== undefined && candidate.maxTokens < constraints.minimumMaxTokens)
-		reasons.push(`max output ${candidate.maxTokens} is below ${constraints.minimumMaxTokens}`);
-	if (constraints.requireReasoning && !candidate.reasoning) reasons.push("reasoning support is required");
 	if (constraints.requireSpawnResolvable && candidate.spawnResolvable !== true)
 		reasons.push(candidate.spawnResolvable === "unknown" ? "child-process resolvability is unknown" : "model is not resolvable by a fresh child process");
 	if (constraints.excludedModels?.some((entry) => normalize(entry) === normalize(modelSpec(candidate)) || normalize(entry) === normalize(candidate.id)))
@@ -236,7 +194,7 @@ function chooseThinking(model: ModelCandidate, policy: ResolvedOptimizationPolic
 function compareModels(left: ModelCandidate, right: ModelCandidate, policy: ResolvedOptimizationPolicy, preferences: SelectionPreferences): number {
 	const diversity = diversityRank(right, preferences) - diversityRank(left, preferences);
 	if (diversity !== 0) return diversity;
-	if (policyDimensions(policy).includes("cost")) {
+	if (policyUsesCost(policy)) {
 		if (left.cost !== undefined && right.cost === undefined) return -1;
 		if (left.cost === undefined && right.cost !== undefined) return 1;
 		if (left.cost !== undefined && right.cost !== undefined && left.cost !== right.cost) return left.cost - right.cost;
@@ -247,7 +205,7 @@ function compareModels(left: ModelCandidate, right: ModelCandidate, policy: Reso
 }
 
 function emptyDecision(requestedPolicy: OptimizationPolicy, resolvedPolicy: ResolvedOptimizationPolicy, rejected: RejectedCandidate[], error: string): SelectionDecision {
-	return { requestedPolicy, resolvedPolicy, alternatives: [], reasons: [], caveats: [], rejected, error };
+	return { requestedPolicy, resolvedPolicy, reasons: [], caveats: [], rejected, error };
 }
 
 export function selectModel(candidates: readonly ModelCandidate[], request: SelectionRequest = {}): SelectionDecision {
@@ -283,7 +241,7 @@ export function selectModel(candidates: readonly ModelCandidate[], request: Sele
 	const sortedModels = [...eligible].sort((left, right) => compareModels(left, right, resolved, preferences));
 	const ranked = sortedModels.flatMap((model): RankedCandidate[] => {
 		const thinkingLevel = chooseThinking(model, resolved, request.thinkingLevelOverride);
-		return thinkingLevel ? [{ model, thinkingLevel, diversityRank: diversityRank(model, preferences), cost: model.cost }] : [];
+		return thinkingLevel ? [{ model, thinkingLevel, diversityRank: diversityRank(model, preferences) }] : [];
 	});
 	if (!ranked.length)
 		return emptyDecision(
@@ -298,27 +256,24 @@ export function selectModel(candidates: readonly ModelCandidate[], request: Sele
 	const selected = ranked[0];
 	reasons.push(`Selected ${modelSpec(selected.model)} at thinking level ${selected.thinkingLevel}`);
 	if (selected.diversityRank > 0) reasons.push("Applied categorical model-family/vendor diversity preference");
-	if (policyDimensions(resolved).includes("cost"))
+	if (policyUsesCost(resolved))
 		reasons.push(
-			selected.cost === undefined
+			selected.model.cost === undefined
 				? "Cost is unknown; used deterministic fallback ordering"
-				: `Selected lowest known input + output reference rate (${selected.cost} USD/Mtok)`,
+				: `Selected lowest known input + output reference rate within the highest-priority diversity tier (${selected.model.cost} USD/Mtok)`,
 		);
 	else
 		reasons.push(
 			"Quality/speed policy controls thinking only; model ordering uses a caller pin, peer diversity, or deterministic fallback",
 		);
 	const caveats: string[] = [];
-	if (policyDimensions(resolved).includes("cost") && selected.cost === undefined) caveats.push("Selected model has no known cost");
+	if (policyUsesCost(resolved) && selected.model.cost === undefined) caveats.push("Selected model has no known cost");
 	if (selected.model.spawnResolvable === "unknown") caveats.push("Child-process resolvability is unknown");
 
-	const maxAlternativesInput = request.maxAlternatives ?? 3;
-	const maxAlternatives = Number.isFinite(maxAlternativesInput) ? Math.max(0, Math.floor(maxAlternativesInput)) : 3;
 	return {
 		requestedPolicy: requested,
 		resolvedPolicy: resolved,
 		selected,
-		alternatives: ranked.slice(1, maxAlternatives + 1),
 		reasons,
 		caveats,
 		rejected,

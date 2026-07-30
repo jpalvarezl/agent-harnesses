@@ -1,3 +1,5 @@
+import { inferModelFamilyVendor } from "../../model-chooser/pi-adapter.ts";
+
 export interface ModelReference {
   provider: string;
   id: string;
@@ -29,11 +31,9 @@ const GPT_PREFERENCES = [
   "gpt-5-mini",
 ];
 
-export function getModelFamily(model: Pick<ModelReference, "id" | "name">): ModelFamily {
-  const value = `${model.id} ${model.name ?? ""}`.toLowerCase();
-  if (/\b(claude|opus|sonnet|haiku)\b/.test(value)) return "claude";
-  if (/\b(gpt|openai|codex)\b/.test(value)) return "gpt";
-  return "other";
+export function getModelFamily(model: Pick<ModelReference, "id" | "name"> & { provider?: string }): ModelFamily {
+  const family = inferModelFamilyVendor({ provider: model.provider ?? "", id: model.id, name: model.name }).family;
+  return family === "claude" || family === "gpt" ? family : "other";
 }
 
 function preferenceRank(id: string, preferences: string[]): number {

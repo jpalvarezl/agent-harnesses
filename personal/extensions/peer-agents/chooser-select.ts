@@ -1,6 +1,6 @@
 import {
 	modelSpec,
-	policyDimensions,
+	policyUsesCost,
 	resolveModelSpec,
 	resolveOptimizationPolicy,
 	selectModel,
@@ -44,7 +44,7 @@ export function resolvePeerChoice(opts: {
 
 	const legacy = selectPeerModelWithFallback(opts.current, opts.available);
 	const { requested, resolved } = resolveOptimizationPolicy(opts.policy, opts.role);
-	const usesCost = policyDimensions(resolved).includes("cost");
+	const usesCost = policyUsesCost(resolved);
 	let modelOverride = opts.model;
 	if (!modelOverride && !usesCost && legacy) {
 		const childSafe = resolveModelSpec(opts.candidates, modelSpec(legacy.model));

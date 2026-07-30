@@ -349,7 +349,7 @@ async function runSingleAgent(
 		};
 	}
 
-	const resolvedModel: ChooserResolvedModel = modelSelect.chooserCandidates && (taskPolicy !== undefined || taskThinkingLevel !== undefined)
+	const resolvedModel: ChooserResolvedModel = modelSelect.chooserCandidates && (taskModel !== undefined || taskPolicy !== undefined || taskThinkingLevel !== undefined)
 		? resolveChooserModel({
 				taskModel,
 				sessionPin: modelSelect.sessionPin,
@@ -1025,13 +1025,20 @@ export default function (pi: ExtensionAPI) {
 
 			const availableModels = ctx.modelRegistry.getAvailable();
 			const chooserRequested =
+				normalizeToolModel(params.model) !== undefined ||
 				normalizeToolPolicy(params.policy) !== undefined ||
 				normalizeToolThinking(params.thinkingLevel) !== undefined ||
 				params.tasks?.some(
-					(item) => normalizeToolPolicy(item.policy) !== undefined || normalizeToolThinking(item.thinkingLevel) !== undefined,
+					(item) =>
+						normalizeToolModel(item.model) !== undefined ||
+						normalizeToolPolicy(item.policy) !== undefined ||
+						normalizeToolThinking(item.thinkingLevel) !== undefined,
 				) ||
 				params.chain?.some(
-					(item) => normalizeToolPolicy(item.policy) !== undefined || normalizeToolThinking(item.thinkingLevel) !== undefined,
+					(item) =>
+						normalizeToolModel(item.model) !== undefined ||
+						normalizeToolPolicy(item.policy) !== undefined ||
+						normalizeToolThinking(item.thinkingLevel) !== undefined,
 				) ||
 				false;
 			const childCatalog = chooserRequested ? await getFreshChildCatalog() : undefined;

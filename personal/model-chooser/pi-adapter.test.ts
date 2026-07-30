@@ -14,9 +14,6 @@ function piModel(id: string, overrides: Partial<PiModelLike> = {}): PiModelLike 
 		id,
 		name: id,
 		reasoning: true,
-		input: ["text"],
-		contextWindow: 200_000,
-		maxTokens: 64_000,
 		cost: { input: 1, output: 4, cacheRead: 0.1, cacheWrite: 0 },
 		...overrides,
 	};
@@ -43,7 +40,7 @@ test("maps Pi thinking levels including nulls and extended-level holes", () => {
 test("adapts capabilities, cost, thinking levels, and child resolvability", () => {
 	const adapted = adaptPiModels(
 		[
-			piModel("child-safe", { input: ["text", "image"], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }),
+			piModel("child-safe", { cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }),
 			piModel("runtime-only", { cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }),
 		],
 		[{ provider: "github-copilot", id: "child-safe" }],
@@ -52,7 +49,6 @@ test("adapts capabilities, cost, thinking levels, and child resolvability", () =
 	assert.equal(adapted[1].spawnResolvable, false);
 	assert.equal(adapted[0].cost, 3);
 	assert.equal(adapted[1].cost, undefined);
-	assert.deepEqual(adapted[0].input, ["text", "image"]);
 	assert.equal(adapted[0].variants.at(-1)?.thinkingLevel, "high");
 });
 
