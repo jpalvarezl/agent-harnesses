@@ -162,16 +162,17 @@ The chooser uses Pi's positive input + output list-price reference rate for cost
 
 ### Precedence and compatibility
 
-Subagents preserve the following model precedence:
+Subagents first resolve a baseline model in this order:
 
 1. Explicit `model` on the tool call / task / chain item
 2. Session default set with `/subagent-model`
 3. Agent frontmatter `model:`
-4. Policy selection, when opted in
-5. **Inherited active session model**
-6. Child CLI default
+4. **Inherited active session model**
+5. Child CLI default
 
-A `model` value may be canonical `provider/id` (recommended) or an unambiguous bare `id`. Unavailable candidates are skipped and reported. Ambiguous bare IDs no longer select an arbitrary provider; qualify them with the provider. Exact/session/frontmatter preferences stay pinned while a policy chooses their thinking level. Cost-bearing policies may select another model when no stronger pin exists.
+Then policy semantics apply: exact/session/frontmatter choices stay pinned while policy selects their thinking level; non-cost quality/speed policies also keep the inherited model; a cost-bearing policy may replace only the inherited/default model with a cheaper child-resolvable model.
+
+A `model` value may be canonical `provider/id` (recommended) or an unambiguous bare `id`. Unavailable candidates are skipped and reported. Ambiguous bare IDs no longer select an arbitrary provider; qualify them with the provider. Exact per-task models are child-verified even when no policy/thinking field is supplied.
 
 Chooser-enabled calls verify models against a cached fresh child-runtime catalog. A model known only to the parent process is not selected for a child. If the fresh catalog cannot be loaded, no eligible model remains, or the requested thinking level is unsupported, the task fails before dispatch with a diagnostic instead of silently running a different model.
 
