@@ -47,6 +47,10 @@ import {
 } from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
 import {
+	getCopilotCatalogSnapshot,
+	hydrateCopilotCatalog,
+} from "../../model-chooser/copilot-catalog-runtime.ts";
+import {
 	getModelsDevMetadataSnapshot,
 	hydrateModelsDevMetadata,
 } from "../../model-chooser/models-dev-runtime.ts";
@@ -952,7 +956,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async () => {
 		subagentModelPin = undefined;
-		await hydrateModelsDevMetadata();
+		await Promise.all([hydrateModelsDevMetadata(), hydrateCopilotCatalog()]);
 	});
 
 	pi.registerCommand("subagent-model", {
@@ -1046,7 +1050,10 @@ export default function (pi: ExtensionAPI) {
 				current: ctx.model as ModelRef | undefined,
 				sessionPin: subagentModelPin,
 				chooserCandidates: chooserRequested
-					? adaptPiModels(availableModels, childCatalog, { modelsDev: getModelsDevMetadataSnapshot() })
+					? adaptPiModels(availableModels, childCatalog, {
+							copilot: getCopilotCatalogSnapshot(),
+							modelsDev: getModelsDevMetadataSnapshot(),
+						})
 					: undefined,
 			};
 

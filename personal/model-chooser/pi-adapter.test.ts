@@ -7,6 +7,7 @@ import {
 	inferModelFamilyVendor,
 	type PiModelLike,
 } from "./pi-adapter.ts";
+import { projectCopilotCatalog } from "./copilot-catalog.ts";
 import { projectModelsDevCatalog } from "./models-dev.ts";
 
 function piModel(id: string, overrides: Partial<PiModelLike> = {}): PiModelLike {
@@ -221,6 +222,31 @@ test("unknown external taxonomy keeps heuristic coarse-family provenance", () =>
 	assert.equal(adapted.vendor, "meta");
 	assert.equal(adapted.identityMetadata?.family?.provenance.source, "model-id-heuristic");
 	assert.equal(adapted.identityMetadata?.vendor?.provenance.source, "models.dev");
+});
+
+test("authenticated Copilot identity outranks models.dev identity while models.dev can still supply cost", () => {
+	const modelsDev = modelsDevSnapshot({
+		id: "claude-model",
+		name: "Claude Model",
+		family: "wrong-family",
+		canonical: "wrong-vendor/claude-model",
+		cost: { input: 2, output: 8 },
+	});
+	const copilot = projectCopilotCatalog(
+		[{ id: "claude-model", name: "Claude Model", vendor: "Anthropic", capabilities: { family: "claude-opus" } }],
+		{ fetchedAt: "2026-07-29T12:00:00.000Z", freshUntil: "2026-07-30T12:00:00.000Z" },
+	);
+	const [adapted] = adaptPiModels(
+		[piModel("claude-model", { name: "Claude Model", cost: undefined })],
+		[],
+		{ copilot, modelsDev, now: new Date("2026-07-29T13:00:00.000Z") },
+	);
+	assert.equal(adapted.family, "claude");
+	assert.equal(adapted.modelFamily, "claude-opus");
+	assert.equal(adapted.vendor, "Anthropic");
+	assert.equal(adapted.identityMetadata?.vendor?.provenance.source, "github-copilot-live-catalog");
+	assert.equal(adapted.identityMetadata?.modelFamily?.provenance.source, "github-copilot-live-catalog");
+	assert.equal(adapted.variants[0].signals.cost?.provenance.source, "models.dev");
 });
 
 test("stale models.dev pricing has lower confidence", () => {

@@ -16,6 +16,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 import {
+  getCopilotCatalogStatus,
+  hydrateCopilotCatalog,
+  refreshCopilotCatalog,
+} from "../../model-chooser/copilot-catalog-runtime.ts";
+import {
   getModelsDevMetadataStatus,
   hydrateModelsDevMetadata,
   refreshModelsDevMetadata,
@@ -268,9 +273,13 @@ function registerDynamicModel(
 
 async function fetchCopilotModels(
   apiKey: string,
-  baseUrl: string
+  baseUrl: string,
+  externalSignal?: AbortSignal,
 ): Promise<CopilotModelEntry[]> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
@@ -313,6 +322,7 @@ async function fetchCopilotModels(
     throw error;
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abort);
   }
 }
 
@@ -324,13 +334,27 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     sessionReady = false;
     if (process.env.PI_SUBAGENT_CHILD !== "1") {
-      await hydrateModelsDevMetadata();
+      await Promise.all([hydrateModelsDevMetadata(), hydrateCopilotCatalog()]);
       metadataRefreshController?.abort();
       metadataRefreshController = new AbortController();
-      // Stale-while-revalidate: tools use the hydrated snapshot immediately;
+      const refreshSignal = metadataRefreshController.signal;
+      // Stale-while-revalidate: tools use hydrated snapshots immediately;
       // network refresh remains outside model-selection tool execution. Nested
       // child Pi processes skip this to avoid parallel catalog downloads.
-      void refreshModelsDevMetadata({ signal: metadataRefreshController.signal });
+      void refreshModelsDevMetadata({ signal: refreshSignal });
+      void (async () => {
+        try {
+          const connection = await resolveCopilotConnection(ctx);
+          if (connection) {
+            await refreshCopilotCatalog(
+              (signal) => fetchCopilotModels(connection.apiKey, connection.baseUrl, signal),
+              { signal: refreshSignal },
+            );
+          }
+        } catch {
+          // Cached provider metadata remains usable; status/refresh reports errors explicitly.
+        }
+      })();
     }
 
     try {
@@ -409,11 +433,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("model-metadata", {
-    description: "Inspect or refresh cached models.dev chooser metadata",
+    description: "Inspect or refresh cached Copilot and models.dev chooser metadata",
     getArgumentCompletions: (prefix) => {
       const options = [
         { value: "status", label: "status", description: "Show cache freshness and current-model matches" },
-        { value: "refresh", label: "refresh", description: "Force a conditional models.dev refresh" },
+        { value: "refresh", label: "refresh", description: "Refresh authenticated Copilot and conditional models.dev metadata" },
       ];
       const filtered = options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
       return filtered.length > 0 ? filtered : null;
@@ -423,24 +447,44 @@ export default function (pi: ExtensionAPI) {
       if (action === "refresh") {
         metadataRefreshController?.abort();
         metadataRefreshController = new AbortController();
-        ctx.ui.setStatus("model-metadata", "Refreshing models.dev metadata…");
-        const result = await refreshModelsDevMetadata({ force: true, signal: metadataRefreshController.signal });
+        const refreshSignal = metadataRefreshController.signal;
+        ctx.ui.setStatus("model-metadata", "Refreshing model metadata…");
+        const modelsDevPromise = refreshModelsDevMetadata({ force: true, signal: refreshSignal });
+        let copilotResult: Awaited<ReturnType<typeof refreshCopilotCatalog>> | undefined;
+        try {
+          const connection = await resolveCopilotConnection(ctx);
+          if (connection) {
+            copilotResult = await refreshCopilotCatalog(
+              (signal) => fetchCopilotModels(connection.apiKey, connection.baseUrl, signal),
+              { force: true, signal: refreshSignal },
+            );
+          }
+        } catch (error) {
+          ctx.ui.notify(`Copilot metadata refresh failed; cached metadata kept: ${formatError(error)}`, "error");
+        }
+        const modelsDevResult = await modelsDevPromise;
         ctx.ui.setStatus("model-metadata", undefined);
-        if (result.status === "error") {
-          ctx.ui.notify(`models.dev refresh failed; cached metadata kept: ${result.error}`, "error");
-          return;
-        }
-        if (result.status === "offline") {
-          ctx.ui.notify("models.dev refresh skipped because PI_OFFLINE is enabled", "warning");
-          return;
-        }
-        ctx.ui.notify(`models.dev metadata: ${result.status}`, "info");
+        if (modelsDevResult.status === "error")
+          ctx.ui.notify(`models.dev refresh failed; cached metadata kept: ${modelsDevResult.error}`, "error");
+        else if (modelsDevResult.status === "offline")
+          ctx.ui.notify("Metadata refresh skipped because PI_OFFLINE is enabled", "warning");
+        else
+          ctx.ui.notify(`models.dev metadata: ${modelsDevResult.status}`, "info");
+        if (copilotResult)
+          ctx.ui.notify(
+            copilotResult.status === "error"
+              ? `Copilot metadata refresh failed; cached metadata kept: ${copilotResult.error}`
+              : `Copilot metadata: ${copilotResult.status}`,
+            copilotResult.status === "error" ? "error" : copilotResult.status === "offline" ? "warning" : "info",
+          );
       } else if (action !== "status") {
         ctx.ui.notify("Usage: /model-metadata [status|refresh]", "error");
         return;
       }
 
-      const status = getModelsDevMetadataStatus(ctx.modelRegistry.getAvailable());
+      const available = ctx.modelRegistry.getAvailable();
+      const status = getModelsDevMetadataStatus(available);
+      const copilotStatus = getCopilotCatalogStatus(available);
       const unmatched = status.unmatchedModels.length > 0
         ? `; unmatched: ${status.unmatchedModels.slice(0, 5).join(", ")}${status.unmatchedModels.length > 5 ? ` (+${status.unmatchedModels.length - 5})` : ""}`
         : "";
@@ -449,6 +493,15 @@ export default function (pi: ExtensionAPI) {
           ? `models.dev ${status.fresh ? "fresh" : "stale"}; matched ${status.matchedModels}/${status.matchedModels + status.unmatchedModels.length}; validated ${status.validatedAt}${unmatched}`
           : `No models.dev cache at ${status.cachePath}${unmatched}`,
         status.available ? "info" : "warning",
+      );
+      const copilotUnmatched = copilotStatus.unmatchedModels.length > 0
+        ? `; unmatched: ${copilotStatus.unmatchedModels.slice(0, 5).join(", ")}${copilotStatus.unmatchedModels.length > 5 ? ` (+${copilotStatus.unmatchedModels.length - 5})` : ""}`
+        : "";
+      ctx.ui.notify(
+        copilotStatus.available
+          ? `Copilot catalog ${copilotStatus.fresh ? "fresh" : "stale"}; matched ${copilotStatus.matchedModels}/${copilotStatus.matchedModels + copilotStatus.unmatchedModels.length}; fetched ${copilotStatus.fetchedAt}${copilotUnmatched}`
+          : `No Copilot metadata cache at ${copilotStatus.cachePath}${copilotUnmatched}`,
+        copilotStatus.available ? "info" : "warning",
       );
     },
   });
@@ -500,6 +553,7 @@ export default function (pi: ExtensionAPI) {
       let models: CopilotModelEntry[];
       try {
         models = await fetchCopilotModels(apiKey, baseUrl);
+        await refreshCopilotCatalog(async () => models, { force: true });
       } catch (error) {
         ctx.ui.notify(formatError(error), "error");
         return;

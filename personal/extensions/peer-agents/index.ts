@@ -19,6 +19,10 @@ import {
 } from "../../model-chooser/tool-options.ts";
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
 import {
+  getCopilotCatalogSnapshot,
+  hydrateCopilotCatalog,
+} from "../../model-chooser/copilot-catalog-runtime.ts";
+import {
   getModelsDevMetadataSnapshot,
   hydrateModelsDevMetadata,
 } from "../../model-chooser/models-dev-runtime.ts";
@@ -139,7 +143,10 @@ async function choosePeerModel(
     role,
     current: ctx.model,
     available,
-    candidates: adaptPiModels(available, childCatalog, { modelsDev: getModelsDevMetadataSnapshot() }),
+    candidates: adaptPiModels(available, childCatalog, {
+      copilot: getCopilotCatalogSnapshot(),
+      modelsDev: getModelsDevMetadataSnapshot(),
+    }),
     model: options.model,
     policy: options.policy,
     thinkingLevel: options.thinkingLevel,
@@ -297,7 +304,7 @@ const ThinkingLevelSchema = StringEnum(TOOL_THINKING_VALUES, {
 
 export default function peerAgents(pi: ExtensionAPI) {
   pi.on("session_start", async () => {
-    await hydrateModelsDevMetadata();
+    await Promise.all([hydrateModelsDevMetadata(), hydrateCopilotCatalog()]);
   });
 
   const timeoutMs = positiveIntegerFromEnv(process.env.PI_PEER_AGENT_TIMEOUT_MS, DEFAULT_PEER_TIMEOUT_MS);

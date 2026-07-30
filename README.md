@@ -237,7 +237,7 @@ Dynamic GitHub Copilot model selector. Registers `/model_cur`, which queries you
 /model-metadata refresh
 ```
 
-The metadata cache is projected to the fields the chooser needs, refreshed with ETags outside tool execution, retained stale on failures, and never fetched when `PI_OFFLINE` is enabled.
+Chooser metadata caches include authenticated Copilot vendor/family identity plus projected models.dev fallback fields. They refresh outside tool execution (ETags for models.dev), retain stale data on failures, and never fetch when `PI_OFFLINE` is enabled.
 
 ## Notes
 - Skills can also be triggered implicitly by natural language requests.

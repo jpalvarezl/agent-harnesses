@@ -9,6 +9,7 @@ import {
 	type ThinkingLevel,
 	type UtilitySignal,
 } from "./index.ts";
+import { lookupCopilotIdentity, type CopilotCatalogSnapshot, type CopilotIdentityEnrichment } from "./copilot-catalog.ts";
 import { lookupModelsDevMetadata, type ModelsDevEnrichment, type ModelsDevSnapshot } from "./models-dev.ts";
 
 export interface PiModelLike extends ModelIdentity {
@@ -26,6 +27,7 @@ export interface PiModelLike extends ModelIdentity {
 }
 
 export interface PiAdapterOptions {
+	copilot?: CopilotCatalogSnapshot;
 	modelsDev?: ModelsDevSnapshot;
 	now?: Date;
 }
@@ -38,7 +40,8 @@ interface CostBasis {
 
 interface PreparedModel {
 	model: PiModelLike;
-	enrichment?: ModelsDevEnrichment;
+	copilot?: CopilotIdentityEnrichment;
+	modelsDev?: ModelsDevEnrichment;
 	cost?: CostBasis;
 }
 
@@ -168,16 +171,16 @@ function enrichedCoarseFamily(vendor: string | undefined, modelFamily: string | 
 }
 
 function coarseFamilyAttribution(
-	enrichment: ModelsDevEnrichment | undefined,
+	source: MetadataAttribution | undefined,
 	vendor: string | undefined,
+	modelFamily: string | undefined,
 ): MetadataAttribution | undefined {
-	const source = enrichment?.identityMetadata?.vendor ?? enrichment?.identityMetadata?.family;
 	if (!source) return undefined;
 	return {
 		confidence: source.confidence,
 		provenance: {
 			...source.provenance,
-			detail: `coarse independence family derived from ${vendor ? `canonical vendor ${vendor}` : `model family ${enrichment?.family}`}`,
+			detail: `coarse independence family derived from ${vendor ? `vendor ${vendor}` : `model family ${modelFamily}`}`,
 		},
 	};
 }
@@ -189,33 +192,37 @@ export function adaptPiModels(
 ): ModelCandidate[] {
 	const now = options.now ?? new Date();
 	const prepared: PreparedModel[] = models.map((model) => {
-		const enrichment = lookupModelsDevMetadata(options.modelsDev, model, now);
-		return { model, enrichment, cost: resolveCostBasis(model, enrichment) };
+		const copilot = lookupCopilotIdentity(options.copilot, model, now);
+		const modelsDev = lookupModelsDevMetadata(options.modelsDev, model, now);
+		return { model, copilot, modelsDev, cost: resolveCostBasis(model, modelsDev) };
 	});
 	// Pi and models.dev rates are both USD per million tokens (input + output),
 	// so they can share one normalization pool. Do not add other billing units.
 	const knownRates = prepared.map((entry) => entry.cost?.rate).filter((rate): rate is number => rate !== undefined);
 	const cheapestRate = knownRates.length > 0 ? Math.min(...knownRates) : undefined;
 
-	return prepared.map(({ model, enrichment, cost }) => {
+	return prepared.map(({ model, copilot, modelsDev, cost }) => {
 		const heuristic = inferModelFamilyVendor(model);
-		const vendor = enrichment?.vendor ?? heuristic.vendor;
-		const metadataCoarseFamily = enrichedCoarseFamily(enrichment?.vendor, enrichment?.family);
+		const vendor = copilot?.vendor ?? modelsDev?.vendor ?? heuristic.vendor;
+		const modelFamily = copilot?.modelFamily ?? modelsDev?.family;
+		const metadataCoarseFamily = enrichedCoarseFamily(vendor, modelFamily);
 		const family = metadataCoarseFamily ?? heuristic.family;
+		const vendorMetadata = copilot?.identityMetadata?.vendor ?? modelsDev?.identityMetadata?.vendor;
+		const modelFamilyMetadata = copilot?.identityMetadata?.modelFamily ?? modelsDev?.identityMetadata?.family;
 		const normalizedCost = cost && cheapestRate !== undefined ? { ...cost, utility: cheapestRate / cost.rate } : undefined;
 		return {
 			provider: model.provider,
 			id: model.id,
 			name: model.name,
 			family,
-			modelFamily: enrichment?.family,
+			modelFamily,
 			vendor,
 			identityMetadata: {
 				family:
-					(metadataCoarseFamily ? coarseFamilyAttribution(enrichment, enrichment?.vendor) : undefined) ??
+					(metadataCoarseFamily ? coarseFamilyAttribution(vendorMetadata ?? modelFamilyMetadata, vendor, modelFamily) : undefined) ??
 					(family ? heuristicAttribution("family") : undefined),
-				modelFamily: enrichment?.identityMetadata?.family,
-				vendor: enrichment?.identityMetadata?.vendor ?? (vendor ? heuristicAttribution("vendor") : undefined),
+				modelFamily: modelFamilyMetadata,
+				vendor: vendorMetadata ?? (vendor ? heuristicAttribution("vendor") : undefined),
 			},
 			input: [...model.input],
 			contextWindow: model.contextWindow,

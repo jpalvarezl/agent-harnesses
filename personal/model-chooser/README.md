@@ -65,9 +65,11 @@ Initial signals are deliberately limited:
 
 The subagent and peer-agent extensions expose `policy`, `thinkingLevel`, and exact `model` fields. Their strict-tool enums use sentinel-first defaults: `policy: "legacy"` preserves existing behavior and `thinkingLevel: "auto"` lets the chooser decide. This prevents strict callers that materialize optional fields from accidentally opting into the first optimization policy or forcing thinking off. The eight optimization policies remain `auto`, the three single dimensions, three two-way combinations, and `balanced`.
 
-## models.dev enrichment
+## Provider and models.dev enrichment
 
-Phase 3 adds a projected models.dev catalog with exact route matching, canonical vendor resolution, and provenance/freshness metadata. Pi remains authoritative for availability, capabilities, positive route prices, and child resolvability. models.dev can:
+Phase 3 caches the authenticated GitHub Copilot `/models` identity catalog and a projected models.dev catalog. Exact Copilot `vendor` and `capabilities.family` metadata has first priority for Copilot identity; models.dev supplies canonical vendor/model-family fallback and exact-route price fallback. Pi remains authoritative for availability, capabilities, positive route prices, and child resolvability.
+
+models.dev can:
 
 - refine canonical vendor and source-specific model family/tier identity (including punctuation aliases and unique name+family aliases such as MAI), while preserving coarse `claude`/`gpt`/`gemini` families for peer-independence decisions;
 - supply an exact same-route list price only when Pi pricing is missing or all-zero;
@@ -75,6 +77,6 @@ Phase 3 adds a projected models.dev catalog with exact route matching, canonical
 
 For subscription routes such as GitHub Copilot, that fallback price is explicitly a low-confidence list-price proxy. It may not match premium-request, AI-credit, or subscription economics and can therefore misrank `cost` until provider-specific billing metadata is available.
 
-The projected cache lives under `~/.pi/agent/cache/model-chooser/`, is loaded before chooser tools run, and is refreshed stale-while-revalidate outside tool execution. Refreshes use ETags, retain stale data on failures, use atomic writes, and honor `PI_OFFLINE`. Use `/model-metadata status` or `/model-metadata refresh` from the model-dynamics extension to inspect or refresh it.
+Projected caches live under `~/.pi/agent/cache/model-chooser/`, load before chooser tools run, and refresh stale-while-revalidate outside tool execution. Copilot identity refresh uses the authenticated account endpoint; models.dev refresh uses ETags. Both retain stale data on failures, use atomic writes, honor `PI_OFFLINE`, and suppress background network work in nested subagent processes. Use `/model-metadata status` or `/model-metadata refresh` from the model-dynamics extension to inspect or refresh both sources.
 
-Benchmark quality, observed latency, user constraints/overrides, authenticated Copilot catalog identity, and shadow evaluation remain later slices.
+Benchmark quality, observed latency, user constraints/overrides, provider-specific billing metadata, and shadow evaluation remain later slices.
