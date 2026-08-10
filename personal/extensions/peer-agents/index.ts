@@ -69,17 +69,23 @@ A concrete next step.`;
 
 const CODE_REVIEW_PROMPT = `You are a senior code reviewer operating independently from the implementation agent. Review only; never modify files.
 
-Prioritize correctness, regressions, security, concurrency, data loss, compatibility, and missing tests. Do not spend space on subjective style unless it creates a maintenance or correctness risk. Verify findings against repository files before reporting them. A finding must be actionable and include a file and line when possible. If no substantive issues exist, say so clearly.
+Prioritize correctness, regressions, security, concurrency, data loss, compatibility, and missing tests. Do not spend space on subjective style unless it creates a maintenance or correctness risk. Verify findings against repository files before reporting them. A finding must be actionable and include a file and line when possible. Report only confirmed issues introduced by or directly relevant to the change set; do not turn speculative hardening or optional cleanup into required work. If no substantive issues exist, say so clearly.
+
+Verdict rules:
+- BLOCK only for a confirmed critical defect that makes the change unsafe to merge.
+- REVISE only for a confirmed functional defect, regression, compatibility problem, or important missing test coverage that must be fixed before merge.
+- APPROVE when no required changes remain, even if optional Suggestions are present.
+- Suggestions never affect the verdict and must not be presented as required follow-up.
 
 Output:
 ## Critical
 Must-fix defects, or "None".
 
 ## Warnings
-Likely defects or important missing coverage, or "None".
+Confirmed defects or important missing coverage that should be fixed before merge, or "None".
 
 ## Suggestions
-Optional improvements; keep brief.
+Optional improvements only; keep brief.
 
 ## Verdict
 One of: BLOCK, REVISE, or APPROVE, followed by a concise rationale.`;
@@ -291,7 +297,7 @@ const ThinkingLevelSchema = StringEnum(TOOL_THINKING_VALUES, {
   default: "auto",
 });
 
-export default function peerAgents(pi: ExtensionAPI) {
+export default function peerAgents(pi: ExtensionAPI, options: { rubberDuckOnly?: boolean } = {}) {
   const timeoutMs = positiveIntegerFromEnv(process.env.PI_PEER_AGENT_TIMEOUT_MS, DEFAULT_PEER_TIMEOUT_MS);
   const maxConcurrency = positiveIntegerFromEnv(
     process.env.PI_PEER_AGENT_MAX_CONCURRENCY,
@@ -354,6 +360,8 @@ export default function peerAgents(pi: ExtensionAPI) {
     },
   });
 
+  if (options.rubberDuckOnly) return;
+
   pi.registerTool({
     name: "code_review",
     label: "Code Review",
@@ -361,7 +369,9 @@ export default function peerAgents(pi: ExtensionAPI) {
       "Dispatch an independent read-only peer to review the complete local diff, including committed, staged, unstaged, and untracked changes. Optionally select an exact model or a quality/speed/cost policy.",
     promptSnippet: "Review the complete local git diff with an independent peer model",
     promptGuidelines: [
-      "Use code_review after substantive code changes and before running git push or gh pr create; address BLOCK or REVISE findings before pushing.",
+      "Use code_review once, from the top-level orchestrating agent, after a substantive or high-risk change is fully implemented and relevant tests pass; for parallel work, wait until every worker has finished and all changes are integrated.",
+      "Do not use code_review inside worker subagents, concurrently with edits, or after trivial changes. Before push or PR creation, address required BLOCK/REVISE findings; Suggestions are optional and do not trigger edits or another review.",
+      "After fixing required review findings, run at most one verification code_review, and only when the fixes materially changed reviewed behavior. Stop when the verdict is APPROVE or only Suggestions remain.",
       "Use code_review whenever the user requests review of local changes. The review agent is read-only and must not replace running the relevant tests.",
     ],
     parameters: Type.Object({

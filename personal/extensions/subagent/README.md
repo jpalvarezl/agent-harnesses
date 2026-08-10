@@ -22,11 +22,11 @@ subagent/
 │   ├── scout.md         # Fast recon, returns compressed context
 │   ├── planner.md       # Creates implementation plans
 │   ├── reviewer.md      # Code review
-│   └── worker.md        # General-purpose (full capabilities)
+│   └── worker.md        # Implementation, builds, and tests (+ rubber duck)
 └── prompts/             # Workflow presets (prompt templates)
     ├── implement.md     # scout -> planner -> worker
     ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
+    └── implement-and-review.md  # worker -> top-level bounded review
 ```
 
 ## Installation
@@ -53,6 +53,8 @@ Then add `personal/extensions/subagent` to the `"extensions"` array in
 ## Security Model
 
 This tool executes a separate `pi` subprocess with a delegated system prompt and tool/model configuration.
+
+Child processes run with extension discovery disabled. The harness explicitly loads only the `rubber_duck` child entry point, so workers can consult an independent design peer but cannot recursively invoke `code_review`, `subagent`, or unrelated extensions. The top-level orchestrator owns final review after all worker changes are integrated.
 
 **Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
 
@@ -240,7 +242,7 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `scout` | Fast codebase recon | inherits session | read, grep, find, ls, bash |
 | `planner` | Implementation plans | inherits session | read, grep, find, ls |
 | `reviewer` | Code review | inherits session | read, grep, find, ls, bash |
-| `worker` | General-purpose | inherits session | (all default) |
+| `worker` | Implement, build, and test | inherits session | read, grep, find, ls, bash, edit, write, rubber_duck |
 
 The sample agents no longer pin a model, so they inherit the active session model by default. Use `/subagent-model` or a per-task `model` to run cheaper/faster models (e.g. for scout recon).
 
@@ -250,7 +252,7 @@ The sample agents no longer pin a model, so they inherit the active session mode
 |--------|------|
 | `/implement <query>` | scout → planner → worker |
 | `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+| `/implement-and-review <query>` | worker → one top-level review → required fixes → at most one verification |
 
 ## Error Handling
 

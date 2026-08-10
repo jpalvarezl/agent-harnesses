@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -48,6 +49,7 @@ import {
 import { adaptPiModels } from "../../model-chooser/pi-adapter.ts";
 import { resolveChooserModel, type ChooserResolvedModel } from "./chooser-select.ts";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { createChildBaseArgs } from "./child-invocation.ts";
 import {
 	resolveAvailableModel,
 	type ModelRef,
@@ -314,6 +316,11 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
+const RUBBER_DUCK_CHILD_EXTENSION = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"../peer-agents/rubber-duck-only.ts",
+);
+
 interface RuntimeModelSelectContext extends ModelSelectContext {
 	chooserCandidates?: ModelCandidate[];
 }
@@ -383,7 +390,10 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	// Child processes must not inherit orchestration/review extensions. Load only
+	// the dedicated rubber-duck entry point so workers can challenge a design
+	// without recursively dispatching code reviews or more subagents.
+	const args = createChildBaseArgs(RUBBER_DUCK_CHILD_EXTENSION);
 	if (resolvedModel.spec) args.push("--model", resolvedModel.spec);
 	if (resolvedModel.thinkingLevel) args.push("--thinking", resolvedModel.thinkingLevel);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
@@ -1014,6 +1024,7 @@ export default function (pi: ExtensionAPI) {
 			"Use subagent tasks for parallel independent work, and subagent chain when a later step needs an earlier step's output via the {previous} placeholder.",
 			'Use subagent with isolation: "git-worktree" whenever parallel tasks may modify files; it requires a clean git tree, merges clean-only, and preserves conflicts for manual resolution (never auto-resolved).',
 			"Use subagent parallel mode without isolation only for read-only agents (scout/planner/reviewer); serialize write-heavy work with chain or isolate worker tasks.",
+			"Use subagent workers only to implement, build, and test. Workers may use rubber_duck for design uncertainty, but the top-level orchestrator alone runs code_review after all worker changes are integrated.",
 			"Use subagent children with the inherited session model by default; use a subagent policy to optimize quality, speed, and/or cost, and reserve exact model overrides for explicit user requirements.",
 		],
 		parameters: SubagentParams,

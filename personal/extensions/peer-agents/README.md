@@ -23,7 +23,9 @@ Both tools accept optional model-selection fields:
 - An explicit same-family chooser selection is reported separately from a fallback.
 - Peers use a fresh extension-free child catalog and fail before dispatch when the selected model cannot be resolved.
 - Bare IDs matching multiple providers are rejected with canonical alternatives.
-- Subprocesses receive only read-only tools (`read`, `grep`, `find`, and `ls`).
+- Peer subprocesses receive only read-only tools (`read`, `grep`, `find`, and `ls`).
+- Subagent workers load the dedicated `rubber-duck-only.ts` entry point with global extension discovery disabled. They can use `rubber_duck`, but cannot invoke `code_review` or recursively orchestrate subagents.
+- Final code review belongs to the top-level orchestrator after implementation, builds, tests, and parallel integration complete. Required fixes permit at most one material verification review; optional Suggestions do not trigger edits or re-review.
 
 ## Runtime controls
 

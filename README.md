@@ -202,6 +202,7 @@ Delegate work to specialized subagents with **isolated context windows** (each r
 - **Modes:** single `{agent, task}`, parallel `{tasks: [...]}`, chain `{chain: [...]}` (sequential; `{previous}` is replaced with the prior step's output).
 - **Models:** children inherit the active session model by default; set a session pin with `/subagent-model`, pass an exact per-task `model`, or opt into a `policy` (`auto`, `quality`, `speed`, `cost`, any two-way combination, or `balanced`) with an optional `thinkingLevel`. Use canonical `provider/id` specs: ambiguous bare IDs are rejected rather than selecting an arbitrary provider.
 - **Parallel writes:** pass `isolation: "git-worktree"` so each task runs in its own worktree/branch and the harness merges them back (clean-merge-only; conflicts preserved for manual resolution; optional `buildCommand` gate; `cleanup` = `on-success` | `never`). Requires a clean git tree.
+- **Child capabilities:** subagent children disable extension discovery and explicitly load only the rubber-duck child entry point. Workers implement, build, and test; they may consult `rubber_duck`, but cannot recursively call `code_review` or `subagent`. The top-level orchestrator reviews the integrated result once.
 
 Full reference: [`personal/extensions/subagent/README.md`](personal/extensions/subagent/README.md).
 
@@ -220,7 +221,7 @@ Run isolated, read-only peer agents, preferably using a different model family. 
 
 Pi executes sibling tool calls concurrently. The extension permits four peer subprocesses by default, queues additional calls, enforces a five-minute timeout per running peer, and propagates cancellation. Override these defaults with `PI_PEER_AGENT_MAX_CONCURRENCY` and `PI_PEER_AGENT_TIMEOUT_MS`.
 
-The tools instruct the main agent to run `code_review` after substantive changes and before `git push` or `gh pr create`. Reviews are advisory and must be verified against tests and repository evidence. Peer prompts, diffs, and files read by the peer are sent to the selected model's configured provider, which may differ from the parent model's provider; use these tools only when that data egress is acceptable.
+The tools instruct only the top-level orchestrator to run `code_review`, once substantive or high-risk work is complete, tested, and fully integrated. Parallel workers do not perform local reviews. Required BLOCK/REVISE fixes permit at most one material verification review; optional Suggestions do not trigger edits or re-review. Review reasoning remains high by default. Reviews are advisory and must be verified against tests and repository evidence. Peer prompts, diffs, and files read by the peer are sent to the selected model's configured provider, which may differ from the parent model's provider; use these tools only when that data egress is acceptable.
 
 ```text
 Bounce this caching design off the rubber duck agent.
