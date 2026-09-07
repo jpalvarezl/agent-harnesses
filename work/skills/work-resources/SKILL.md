@@ -10,7 +10,8 @@ description: >-
   mirror multi-file env folders (e.g. `.azure/<deployment>/{.env,.superset.env,.py.env,...}`).
   This skill is the loader/manager; when the user asks which known resource/flavor to use for
   a product feature or SDK sample set, consult the sibling `work-resource-index` skill first,
-  then use this skill's `wr-*` commands to load or manage it.
+  then use this skill's `wr-*` commands to load or manage it. For resources in a different
+  Azure account, select separate Azure CLI profiles for vault access and sample execution.
 ---
 
 # Work Resources (Azure KeyVault)
@@ -30,7 +31,7 @@ Both tags can be filtered on by `wr-load`, `wr-list`, `wr-clear`, and `wr-delete
 This skill manages and loads KeyVault-backed secrets. The sibling
 [`work-resource-index`](../work-resource-index/SKILL.md) skill depends on this one and records
 verified mappings from product features / SDK sample sets to the `resource` + `flavor` values
-that run them live.
+that run them live, plus any separate Azure CLI profiles needed for vault and runtime access.
 
 When the user asks *which* work resource to use for a feature or sample set, consult
 `work-resource-index` first, then return here for the appropriate `wr-load`, `wr-list`, or
@@ -71,6 +72,93 @@ SUBSCRIPTION_ID=...      # optional; defaults to current `az` subscription
 If the user is joining an existing team vault, ask the vault owner for
 these values — do not guess. After writing `.env`, run the installer,
 open a fresh shell, then `wr-setup`.
+
+## Azure CLI profiles for multiple accounts
+
+`AZURE_CONFIG_DIR` selects the local Azure CLI settings and credential cache. When unset,
+Azure CLI uses `$HOME\.azure` on Windows (`$HOME/.azure` on POSIX). An isolated directory,
+such as `$HOME\.azure-claude-haiku`, lets a test account coexist with the normal work account.
+This is an Azure CLI environment variable, **not** a `wr-*` parameter, flavor, or KeyVault tag.
+
+Keep two authentication contexts distinct:
+
+| Context | Purpose |
+|---------|---------|
+| **Vault CLI profile** | Used by every `wr-*` command to access the configured KeyVault. |
+| **Runtime CLI profile** | Used by the sample and its child processes when they authenticate through Azure CLI. |
+
+The profiles may be the same. Access to a resource's configuration in KeyVault does not grant
+access to that resource, and a test account that can invoke a model might not access the work
+vault. Changing `AZURE_CONFIG_DIR` does not change `~/.work-resources/config/.env` or the vault
+selected there. Azure CLI does not select a profile from a Foundry endpoint.
+
+### Bootstrap a runtime profile
+
+Run in a dedicated PowerShell terminal. Obtain the tenant and subscription from the resource
+owner; do not scan unrelated subscriptions or assume the normal work account is appropriate.
+
+```powershell
+$env:AZURE_CONFIG_DIR = Join-Path $HOME '.azure-claude-haiku'
+az login --tenant '<tenant-id>' --use-device-code
+if ($LASTEXITCODE -ne 0) { throw 'Azure login failed' }
+az account set --subscription '<subscription-id>'
+if ($LASTEXITCODE -ne 0) { throw 'Could not select the runtime subscription' }
+az account show --query '{account:user.name,subscription:id,tenant:tenantId}' -o json
+```
+
+The user completes device-code sign-in in their browser with the intended account. Do not
+copy credentials from another profile. Creating the directory or displaying the sign-in
+code is **not** successful authentication. If the user is unavailable, report sign-in as
+blocked rather than documenting a working resource.
+
+For an agent-launched login without an interactive subscription selector, run
+`az config set core.login_experience_v2=off` **after selecting the isolated profile**.
+Select the intended subscription explicitly after login. Do not apply this configuration
+to the normal profile as a side effect.
+
+On later runs, select the same directory again; repeat login only when needed. Cached
+credentials persist on disk, but the environment variable is process-local. Each fresh
+agent shell must set it again. Do not put it in the global shell profile when both accounts
+must remain usable independently. `az account set` changes the default for all processes
+sharing that directory; use explicit `--subscription` for read-only resource queries.
+
+### Load with the vault profile, then run with the runtime profile
+
+For a resource entry that specifies different profiles:
+
+1. Select its **Vault CLI profile** before `wr-list`, `wr-load`, `wr-save`, or other vault work.
+2. Load the narrowest required resource/flavor and confirm loading succeeded.
+3. Select its **Runtime CLI profile** only after loading has finished.
+4. Start the sample/CLI in that same process so its children inherit `AZURE_CONFIG_DIR`.
+5. Before further `wr-*` calls (including `wr-clear`), select the vault profile again.
+6. Restore the caller's previous `AZURE_CONFIG_DIR` when a script finishes, using `finally`.
+   If it was originally unset, remove it with
+   `[Environment]::SetEnvironmentVariable('AZURE_CONFIG_DIR', $null, 'Process')`.
+
+Keep profile selection outside the secrets payload: do not save `AZURE_CONFIG_DIR` as a
+secret that `wr-load` sets while it is still fetching other secrets. Profiles are local
+authentication metadata recorded in `work-resource-index`, not a third secret naming
+dimension. Never store Azure token caches or login tokens in the index, repository, or `.env`.
+
+`wr-load` persists secret values to `.env`, **not** the selected CLI profile or its cached
+login. Reusing `.env` in another shell still requires selecting the runtime profile explicitly.
+Use an expanded absolute path for `AZURE_CONFIG_DIR`; dotenv files do not evaluate PowerShell
+expressions such as `$HOME` or `Join-Path`.
+
+### Claude Code with a separate Foundry account
+
+Select the runtime profile and set `CLAUDE_CODE_USE_FOUNDRY=1`, the actual
+`ANTHROPIC_FOUNDRY_RESOURCE` (or `ANTHROPIC_FOUNDRY_BASE_URL`), and the deployed Haiku name in
+`ANTHROPIC_DEFAULT_HAIKU_MODEL`. Use `claude --model haiku` for the CLI and
+`CLAUDE_AGENT_MODEL=haiku` for the Agent Framework sample; the latter does not select the
+interactive CLI's model.
+
+Profile selection controls **Azure CLI credentials**, not every credential in
+`DefaultAzureCredential`. Check for conflicting Foundry API keys/auth tokens or configured
+service-principal credentials before assuming CLI authentication is in use; inspect presence,
+not secret values. A token request or `az account show` succeeding does not prove model
+invocation access. Confirm the intended account/tenant, then run the sample successfully
+before adding a verified mapping to the index.
 
 ## Key rules for agents
 
@@ -333,7 +421,8 @@ claude-code, pi-mono, and similar harnesses — the in-process env vars set
 by `wr-load` are gone by the next call. `wr-load` writes the values to
 `./.env` (cwd) so subsequent tool calls can pick them up from disk; how
 to consume that file is up to the caller. `wr-clear -Force` removes both
-the in-process env vars and the fenced block from `./.env`.
+the in-process env vars and the fenced block from `./.env`. Select the vault CLI profile
+before clearing; restore the runtime profile if further sample work follows.
 
 ## Troubleshooting
 
@@ -342,6 +431,8 @@ the in-process env vars and the fenced block from `./.env`.
 | `wr-* : The term '...' is not recognized`                      | CLI not installed, or shell session predates the install.                                     | Run `./install.ps1` then **restart the shell** (or `. $PROFILE.CurrentUserAllHosts`). Do not invoke the underlying scripts directly as a workaround. |
 | Agent is calling `~/.work-resources/scripts/*.ps1` or `pwsh -File ...` | Misreading the install layout as the supported entrypoint.                            | Stop. The only supported entrypoint is `wr-*`. See **How agents must invoke the tool** above.                  |
 | `Configuration not found. Please copy .env.template to .env`   | No `.env` at `~/.work-resources/config/.env` (or repo root for source runs).                  | Follow **Bootstrapping a new user / machine**: gather the three values from the user and write the `.env`.     |
+| Vault access fails after selecting a test account | `wr-*` is using the runtime CLI profile rather than the vault profile. | Restore the entry's vault profile before vault operations; do not grant the test account vault access just to work around the profile mismatch. |
+| Sample works in one terminal but uses the wrong account in another | `AZURE_CONFIG_DIR` was not inherited or another credential took precedence. | Select the runtime profile in the sample's launch process and check credential sources; `.env` loading alone does not select the CLI profile. |
 | `You don't have write access to vault`                         | Caller has User role, not Officer.                                                            | Ask a vault admin to run `wr-add-user -Email <upn> -Role Admin`, or `wr-setup -Role Admin` to elevate.         |
 | `Could not list secrets — you may need to wait for role assignment to propagate` | RBAC propagation lag (1–2 min after `wr-setup` / `wr-add-user`).                | Wait 1–2 minutes and retry.                                                                                    |
 | `Multiple secrets map to $env:VAR (last loaded wins)`          | The matched set spans multiple flavors of the same env var.                                   | Add `-Flavor <name>` to `wr-load` to pick one.                                                                 |

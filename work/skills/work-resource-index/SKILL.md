@@ -2,7 +2,7 @@
 name: work-resource-index
 description: >-
   Index that maps a specific product feature or SDK sample set to the work-resources entry
-  (resource + flavor + env vars) known to run it live. Use to look up WHICH Azure
+  (resource + flavor + env vars + any required Azure CLI profiles) known to run it live. Use to look up WHICH Azure
   KeyVault-backed resource to load before running or live-testing a feature. Depends on the
   `work-resources` skill, which provides the `wr-*` CLI used to actually load the secrets.
   WHEN: "which work resource for X", "what endpoint runs the hosted-agents samples", "how do I
@@ -12,7 +12,8 @@ description: >-
 # Work Resource Index
 
 A lookup table from **feature / sample set → work-resources entry** (`resource`, `flavor`,
-and the environment variables it provides) that has been verified to run that feature live.
+the environment variables it provides, and any required Azure CLI profiles) that has been
+verified to run that feature live.
 
 The goal is to **minimize the spread of resources**: when a resource is proven to work for a
 feature, record it here so other agents reuse the same one instead of hunting for or creating
@@ -26,17 +27,48 @@ to load; the actual loading is done with the `wr-*` CLI documented in the siblin
 
 Typical flow:
 
-1. Look up the feature in the table below to get its `resource` + `flavor`.
+1. Look up the feature's `resource` + `flavor` and any **Authentication context** in its
+   entry details. Select the entry's vault CLI profile before loading secrets.
 2. Use the `work-resources` skill to load it, e.g.:
    ```powershell
    wr-load -Resource <resource> -Flavor <flavor>
    ```
    (`wr-load` also writes the values to `./.env` so they survive across ephemeral shells.)
-3. Run the feature's samples/tests; clear with `wr-clear -Force` when done.
+3. After loading succeeds, select the entry's runtime CLI profile and start the sample
+   from that same shell. Switch back to the vault profile before `wr-clear -Force`.
+   Restore the caller's previous profile afterwards.
 
 All entries below live in the same KeyVault the `work-resources` skill is configured against
 (currently the `ai-foundry-test-secrets` vault). Only secret **names** are recorded here — never
-secret values.
+secret values. A runtime resource may belong to a different account or tenant from the vault.
+
+## Authentication context
+
+`AZURE_CONFIG_DIR` adds a **local authentication layer**, not a third resource/flavor tag.
+The [work-resources profile workflow](../work-resources/SKILL.md#azure-cli-profiles-for-multiple-accounts)
+documents bootstrap, load/run ordering, credential precedence, and restoration.
+
+For entries that require another account, add an **Authentication context** block to the
+entry details:
+
+| Field | What to record |
+|-------|----------------|
+| Vault CLI profile | Profile used for `wr-*`, e.g. the normal `$HOME\.azure` profile. |
+| Runtime CLI profile | Profile used by the sample, e.g. `$HOME\.azure-claude-haiku`. |
+| Tenant/subscription selection | How to obtain the expected IDs from the resource owner or named configuration entries and select them within that profile. |
+| Authentication method | Azure CLI/Entra credentials, or another explicitly configured credential source. |
+| Invocation evidence | Sample that completed successfully using this profile and resource. |
+
+Use home-relative profile descriptions in shared guidance, resolving them to absolute paths
+at launch. Profiles and their cached logins are local to each machine; teammates must
+authenticate their own profiles. Do not record credentials, token caches, or another user's
+login details. Keep endpoint/model values in the configuration source; retain the existing
+secret-name-only convention here.
+
+Existing entries without an Authentication context block do not declare an alternate profile.
+Do not infer an account switch from an endpoint or flavor, and do not assume the current
+identity is authorized merely because it can list a resource. A successful directory creation,
+login, or token request is not sufficient to add an entry to the verified index.
 
 ## Index
 
@@ -214,3 +246,6 @@ When you verify a resource works for a feature:
 4. Record only secret **names** and tag values (`resource`, `flavor`, `env-var-name`), never
    secret values. Use `wr-list -Resource <r> -Flavor <f>` (from the `work-resources` skill) to
    discover the exact secret names.
+5. If authentication needs a separate account, record both CLI profiles and the successful
+   sample run in an **Authentication context** block. Keep this local profile metadata
+   separate from the KeyVault secret names/tags.
